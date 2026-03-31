@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Polymarket AI 交易仪表盘</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        @keyframes pulse-green { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+        @keyframes pulse-red { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+        .live-dot { animation: pulse-green 2s infinite; }
+        .danger-pulse { animation: pulse-red 1s infinite; }
+        .gradient-bg {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+        }
+    </style>
+</head>
+<body class="gradient-bg min-h-screen text-white">
+    <div class="container mx-auto px-4 py-8">
+        <!-- Header -->
+        <div class="flex justify-between items-center mb-8">
+            <div>
+                <h1 class="text-3xl font-bold">🎰 Polymarket AI 交易系统</h1>
+                <p class="text-gray-400 mt-1">模拟交易仪表盘 | 实时监控</p>
+            </div>
+            <div class="flex items-center gap-4">
+                <div class="flex items-center gap-2">
+                    <span class="w-3 h-3 bg-green-500 rounded-full live-dot"></span>
+                    <span class="text-green-400 text-sm">实时</span>
+                </div>
+                <div class="text-right">
+                    <div class="text-sm text-gray-400">最后更新</div>
+                    <div id="lastUpdate" class="text-white font-mono">--:--:--</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Project Info -->
+        <div class="bg-gray-800/50 rounded-xl p-6 mb-8 border border-gray-700">
+            <h2 class="text-xl font-semibold mb-3">📋 项目概览</h2>
+            <div class="grid md:grid-cols-3 gap-4 text-sm">
+                <div>
+                    <span class="text-gray-400">初始资金:</span>
+                    <span class="text-white ml-2">$5,000</span>
+                </div>
+                <div>
+                    <span class="text-gray-400">最大仓位:</span>
+                    <span class="text-white ml-2">$500</span>
+                </div>
+                <div>
+                    <span class="text-gray-400">最大风险敞口:</span>
+                    <span class="text-white ml-2">$2,500</span>
+                </div>
+                <div>
+                    <span class="text-gray-400">止损:</span>
+                    <span class="text-white ml-2">10-15%</span>
+                </div>
+                <div>
+                    <span class="text-gray-400">止盈:</span>
+                    <span class="text-white ml-2">30%</span>
+                </div>
+                <div>
+                    <span class="text-gray-400">置信度:</span>
+                    <span class="text-white ml-2">≥50%</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Stats -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+            <div class="bg-gray-800/50 rounded-xl p-5 border border-gray-700">
+                <div class="text-gray-400 text-sm mb-1">总资产</div>
+                <div id="totalValue" class="text-2xl font-bold">$--</div>
+            </div>
+            <div class="bg-gray-800/50 rounded-xl p-5 border border-gray-700">
+                <div class="text-gray-400 text-sm mb-1">盈亏</div>
+                <div id="totalPnl" class="text-2xl font-bold">$--</div>
+                <div id="totalPnlPct" class="text-sm">--%</div>
+            </div>
+            <div class="bg-gray-800/50 rounded-xl p-5 border border-gray-700">
+                <div class="text-gray-400 text-sm mb-1">现金</div>
+                <div id="cash" class="text-2xl font-bold">$--</div>
+            </div>
+            <div class="bg-gray-800/50 rounded-xl p-5 border border-gray-700">
+                <div class="text-gray-400 text-sm mb-1">风险敞口</div>
+                <div id="exposure" class="text-2xl font-bold">$--</div>
+                <div id="exposureBar" class="w-full bg-gray-700 rounded-full h-2 mt-2">
+                    <div class="bg-blue-500 h-2 rounded-full" style="width: 0%"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Alerts -->
+        <div id="alertsArea" class="mb-6"></div>
+
+        <!-- Positions Table -->
+        <div class="bg-gray-800/50 rounded-xl p-6 mb-8 border border-gray-700">
+            <h2 class="text-xl font-semibold mb-4">📊 当前持仓</h2>
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead>
+                        <tr class="text-gray-400 border-b border-gray-700">
+                            <th class="text-left py-3 px-2">市场</th>
+                            <th class="text-right py-3 px-2">入场价</th>
+                            <th class="text-right py-3 px-2">现价</th>
+                            <th class="text-right py-3 px-2">成本</th>
+                            <th class="text-right py-3 px-2">价值</th>
+                            <th class="text-right py-3 px-2">盈亏</th>
+                            <th class="text-right py-3 px-2">止损缓冲</th>
+                            <th class="text-center py-3 px-2">状态</th>
+                        </tr>
+                    </thead>
+                    <tbody id="positionsTable">
+                        <tr><td colspan="8" class="text-center py-8 text-gray-500">加载中...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Two Column Layout -->
+        <div class="grid md:grid-cols-2 gap-8 mb-8">
+            <!-- Recent Trades -->
+            <div class="bg-gray-800/50 rounded-xl p-6 border border-gray-700">
+                <h2 class="text-xl font-semibold mb-4">📜 最近交易</h2>
+                <div id="tradesList" class="space-y-2 max-h-80 overflow-y-auto">
+                    <div class="text-gray-500 text-center py-4">加载中...</div>
+                </div>
+            </div>
+
+            <!-- Cooldowns -->
+            <div class="bg-gray-800/50 rounded-xl p-6 border border-gray-700">
+                <h2 class="text-xl font-semibold mb-4">⏳ 冷却中的市场</h2>
+                <div id="cooldowns" class="space-y-3">
+                    <div class="text-gray-500 text-center py-4">无活跃冷却</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Strategy Info - Expanded -->
+        <div class="bg-gray-800/50 rounded-xl p-6 border border-gray-700 mb-8">
+            <h2 class="text-xl font-semibold mb-4">🧠 完整策略文档</h2>
+
+            <!-- Trading Capabilities -->
+            <div class="mb-6 p-4 bg-blue-900/30 rounded-lg border border-blue-700">
+                <h3 class="text-blue-400 font-semibold mb-2">✅ 同时支持 YES 和 NO 结果</h3>
+                <p class="text-sm text-gray-300">系统分析并可以交易<strong>任何市场的 YES 和 NO 结果</strong>。策略引擎独立评估双方，选择提供最佳风险/回报的一方。</p>
+                <ul class="mt-2 text-sm text-gray-400 space-y-1">
+                    <li>• 所有 5 种策略都可以触发 BUY_YES 或 BUY_NO</li>
+                    <li>• 当前只有 YES 持仓是因为入场时的市场机会</li>
+                    <li>• 只要出现好的机会，NO 持仓会自动添加</li>
+                </ul>
+            </div>
+
+            <div class="grid md:grid-cols-2 gap-6">
+                <div>
+                    <h3 class="text-gray-400 mb-3">📊 5 种活跃策略</h3>
+                    <div class="space-y-3 text-sm">
+                        <div class="p-3 bg-gray-700/50 rounded-lg">
+                            <div class="flex items-center gap-2 mb-1">
+                                <span class="w-2 h-2 bg-blue-500 rounded-full"></span>
+                                <span class="font-medium">1. 动量策略</span>
+                            </div>
+                            <p class="text-gray-400 text-xs">购买高流动性的低价格结果（10-35%）。可以触发 BUY_YES 或 BUY_NO。</p>
+                        </div>
+                        <div class="p-3 bg-gray-700/50 rounded-lg">
+                            <div class="flex items-center gap-2 mb-1">
+                                <span class="w-2 h-2 bg-purple-500 rounded-full"></span>
+                                <span class="font-medium">2. 非对称价值</span>
+                            </div>
+                            <p class="text-gray-400 text-xs">专注于 15-35% 概率区间以获得最佳风险/回报。可以触发 BUY_YES 或 BUY_NO。</p>
+                        </div>
+                        <div class="p-3 bg-gray-700/50 rounded-lg">
+                            <div class="flex items-center gap-2 mb-1">
+                                <span class="w-2 h-2 bg-yellow-500 rounded-full"></span>
+                                <span class="font-medium">3. 反向策略</span>
+                            </div>
+                            <p class="text-gray-400 text-xs">对抗 >90% 的信心，但最低 10% 价格。可以触发 BUY_YES 或 BUY_NO。</p>
+                        </div>
+                        <div class="p-3 bg-gray-700/50 rounded-lg">
+                            <div class="flex items-center gap-2 mb-1">
+                                <span class="w-2 h-2 bg-cyan-500 rounded-full"></span>
+                                <span class="font-medium">4. 错误定价套利</span>
+                            </div>
+                            <p class="text-gray-400 text-xs">寻找 YES + NO ≠ 1.0 的机会。可以触发 BUY_YES 或 BUY_NO。</p>
+                        </div>
+                        <div class="p-3 bg-gray-700/50 rounded-lg">
+                            <div class="flex items-center gap-2 mb-1">
+                                <span class="w-2 h-2 bg-pink-500 rounded-full"></span>
+                                <span class="font-medium">5. 流动性套利</span>
+                            </div>
+                            <p class="text-gray-400 text-xs">寻找订单簿不平衡和紧缩价差。可以触发 BUY_YES 或 BUY_NO。</p>
+                        </div>
+                    </div>
+                </div>
+                <div>
+                    <h3 class="text-gray-400 mb-3">🛡️ 风险管理规则</h3>
+                    <ul class="space-y-3 text-sm">
+                        <li class="flex items-start gap-2 p-3 bg-gray-700/50 rounded-lg">
+                            <span class="w-2 h-2 bg-red-500 rounded-full mt-1"></span>
+                            <div>
+                                <span class="font-medium">动态止损</span>
+                                <p class="text-gray-400 text-xs mt-1">低概率 10%，正常市场 15%</p>
+                            </div>
+                        </li>
+                        <li class="flex items-start gap-2 p-3 bg-gray-700/50 rounded-lg">
+                            <span class="w-2 h-2 bg-green-500 rounded-full mt-1"></span>
+                            <div>
+                                <span class="font-medium">止盈</span>
+                                <p class="text-gray-400 text-xs mt-1">30% 收益触发自动卖出</p>
+                            </div>
+                        </li>
+                        <li class="flex items-start gap-2 p-3 bg-gray-700/50 rounded-lg">
+                            <span class="w-2 h-2 bg-orange-500 rounded-full mt-1"></span>
+                            <div>
+                                <span class="font-medium">24小时冷却期</span>
+                                <p class="text-gray-400 text-xs mt-1">止损后防止重新入场</p>
+                            </div>
+                        </li>
+                        <li class="flex items-start gap-2 p-3 bg-gray-700/50 rounded-lg">
+                            <span class="w-2 h-2 bg-purple-500 rounded-full mt-1"></span>
+                            <div>
+                                <span class="font-medium">仓位大小</span>
+                                <p class="text-gray-400 text-xs mt-1">根据风险等级 $200-$500</p>
+                            </div>
+                        </li>
+                        <li class="flex items-start gap-2 p-3 bg-gray-700/50 rounded-lg">
+                            <span class="w-2 h-2 bg-blue-500 rounded-full mt-1"></span>
+                            <div>
+                                <span class="font-medium">最低价格</span>
+                                <p class="text-gray-400 text-xs mt-1">10% 以下不做反向操作（从损失中学习）</p>
+                            </div>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- Lessons Learned -->
+        <div class="bg-gray-800/50 rounded-xl p-6 border border-gray-700 mb-8">
+            <h2 class="text-xl font-semibold mb-4">📚 经验教训</h2>
+            <div class="grid md:grid-cols-2 gap-4">
+                <div class="p-4 bg-red-900/30 rounded-lg border border-red-700">
+                    <h3 class="text-red-400 font-semibold mb-2">❌ 失败的经验</h3>
+                    <ul class="text-sm text-gray-300 space-y-1">
+                        <li>• <strong>OpenAI 硬件</strong>：买入价 3.9% → 止损 -21.8% 损失</li>
+                        <li>• <strong>GTA VI</strong>：买入价 2.4% → 止损 -17.0% 损失</li>
+                        <li>• <strong>教训</strong>：<10% 概率有高止损风险</li>
+                    </ul>
+                </div>
+                <div class="p-4 bg-green-900/30 rounded-lg border border-green-700">
+                    <h3 class="text-green-400 font-semibold mb-2">✅ 成功的经验</h3>
+                    <ul class="text-sm text-gray-300 space-y-1">
+                        <li>• <strong>世界杯持仓</strong>：稳定，低波动性</li>
+                        <li>• <strong>中概率区间</strong>：15-35% 有最佳风险/回报</li>
+                        <li>• <strong>冷却机制</strong>：防止重复损失</li>
+                        <li>• <strong>动态止损</strong>：有效保护资金</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="text-center text-gray-500 text-sm mt-8">
+            <p>Polymarket AI 交易系统 | 模拟交易模式</p>
+            <p class="mt-1">每 10 秒自动刷新</p>
+        </div>
+    </div>
+
+    <script>
+        function formatMoney(n) {
+            return '$' + n.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+        }
+
+        function formatPct(n) {
+            const sign = n >= 0 ? '+' : '';
+            return sign + n.toFixed(2) + '%';
+        }
+
+        function getStatusColor(buffer) {
+            if (buffer < 2) return 'bg-red-500 danger-pulse';
+            if (buffer < 5) return 'bg-red-500';
+            if (buffer < 10) return 'bg-yellow-500';
+            return 'bg-green-500';
+        }
+
+        function getStatusText(buffer) {
+            if (buffer < 2) return '危险';
+            if (buffer < 5) return '警告';
+            if (buffer < 10) return '关注';
+            return '安全';
+        }
+
+        function updateDashboard() {
+            fetch('/api/status')
+                .then(r => r.json())
+                .then(data => {
+                    // Update timestamp
+                    document.getElementById('lastUpdate').textContent =
+                        new Date(data.timestamp).toLocaleTimeString();
+
+                    // Portfolio stats
+                    const p = data.portfolio;
+                    document.getElementById('totalValue').textContent = formatMoney(p.total_value);
+                    document.getElementById('cash').textContent = formatMoney(p.cash);
+
+                    const pnlEl = document.getElementById('totalPnl');
+                    const pnlPctEl = document.getElementById('totalPnlPct');
+                    pnlEl.textContent = formatMoney(p.total_pnl);
+                    pnlPctEl.textContent = formatPct(p.total_pnl_pct);
+
+                    if (p.total_pnl >= 0) {
+                        pnlEl.className = 'text-2xl font-bold text-green-400';
+                        pnlPctEl.className = 'text-sm text-green-400';
+                    } else {
+                        pnlEl.className = 'text-2xl font-bold text-red-400';
+                        pnlPctEl.className = 'text-sm text-red-400';
+                    }
+
+                    // Exposure
+                    document.getElementById('exposure').textContent =
+                        formatMoney(p.exposure) + ' / ' + formatMoney(p.max_exposure);
+                    const exposurePct = (p.exposure / p.max_exposure * 100);
+                    document.getElementById('exposureBar').innerHTML =
+                        `<div class="h-2 rounded-full ${exposurePct > 90 ? 'bg-orange-500' : 'bg-blue-500'}" style="width: ${exposurePct}%"></div>`;
+
+                    // Alerts
+                    const criticalPositions = data.positions.filter(pos => pos.buffer_pct < 5);
+                    let alertsHtml = '';
+                    if (criticalPositions.length > 0) {
+                        alertsHtml = '<div class="bg-red-900/50 border border-red-500 rounded-xl p-4 mb-6">' +
+                            '<div class="flex items-center gap-2 mb-2">' +
+                            '<span class="text-2xl">🚨</span>' +
+                            '<span class="font-bold text-red-400">警报：仓位接近止损</span>' +
+                            '</div><div class="space-y-1 text-sm">';
+                        criticalPositions.forEach(pos => {
+                            alertsHtml += `<div class="text-red-300">• ${pos.question.substring(0, 50)}... (${pos.buffer_pct.toFixed(1)}% 缓冲)</div>`;
+                        });
+                        alertsHtml += '</div></div>';
+                    }
+                    document.getElementById('alertsArea').innerHTML = alertsHtml;
+
+                    // Positions table
+                    let posHtml = '';
+                    data.positions.forEach(pos => {
+                        const pnlClass = pos.pnl_pct >= 0 ? 'text-green-400' : 'text-red-400';
+                        const statusColor = getStatusColor(pos.buffer_pct);
+                        const statusText = getStatusText(pos.buffer_pct);
+
+                        posHtml += `
+                            <tr class="border-b border-gray-700/50 hover:bg-gray-700/30">
+                                <td class="py-3 px-2">
+                                    <div class="font-medium truncate max-w-xs" title="${pos.question}">${pos.question.substring(0, 40)}...</div>
+                                    <div class="text-xs text-gray-500">[${pos.outcome}]</div>
+                                </td>
+                                <td class="text-right py-3 px-2 font-mono">${pos.entry_price.toFixed(4)}</td>
+                                <td class="text-right py-3 px-2 font-mono">${pos.current_price.toFixed(4)}</td>
+                                <td class="text-right py-3 px-2">${formatMoney(pos.cost_usd)}</td>
+                                <td class="text-right py-3 px-2">${formatMoney(pos.current_value)}</td>
+                                <td class="text-right py-3 px-2 ${pnlClass}">
+                                    <div>${formatMoney(pos.pnl_usd)}</div>
+                                    <div class="text-xs">${formatPct(pos.pnl_pct)}</div>
+                                </td>
+                                <td class="text-right py-3 px-2">
+                                    <div class="text-sm">${pos.buffer_pct.toFixed(1)}%</div>
+                                    <div class="w-full bg-gray-700 rounded-full h-1.5 mt-1">
+                                        <div class="${statusColor} h-1.5 rounded-full" style="width: ${Math.min(pos.buffer_pct * 5, 100)}%"></div>
+                                    </div>
+                                </td>
+                                <td class="text-center py-3 px-2">
+                                    <span class="px-2 py-1 rounded text-xs font-medium ${statusColor}">${statusText}</span>
+                                </td>
+                            </tr>
+                        `;
+                    });
+                    document.getElementById('positionsTable').innerHTML = posHtml ||
+                        '<tr><td colspan="8" class="text-center py-8 text-gray-500">无持仓</td></tr>';
+
+                    // Recent trades
+                    let tradesHtml = '';
+                    data.trades.recent.slice().reverse().forEach(trade => {
+                        const isBuy = trade.action === 'BUY';
+                        const actionClass = isBuy ? 'text-green-400 bg-green-900/30' : 'text-red-400 bg-red-900/30';
+                        const actionIcon = isBuy ? '📈' : '📉';
+
+                        tradesHtml += `
+                            <div class="flex items-center gap-3 p-2 rounded-lg bg-gray-700/30">
+                                <span class="text-lg">${actionIcon}</span>
+                                <div class="flex-1 min-w-0">
+                                    <div class="truncate text-sm">${trade.market_question.substring(0, 35)}...</div>
+                                    <div class="text-xs text-gray-500">${new Date(trade.timestamp).toLocaleString()}</div>
+                                </div>
+                                <div class="text-right">
+                                    <div class="text-sm ${isBuy ? 'text-green-400' : 'text-red-400'}">${formatMoney(trade.cost_usd)}</div>
+                                    <div class="text-xs text-gray-500">@ ${trade.price.toFixed(4)}</div>
+                                </div>
+                            </div>
+                        `;
+                    });
+                    document.getElementById('tradesList').innerHTML = tradesHtml ||
+                        '<div class="text-gray-500 text-center py-4">暂无交易</div>';
+
+                    // Cooldowns
+                    let cooldownHtml = '';
+                    data.cooldowns.forEach(cd => {
+                        cooldownHtml += `
+                            <div class="flex items-center justify-between p-3 rounded-lg bg-orange-900/30 border border-orange-700">
+                                <div>
+                                    <div class="text-sm">市场 ${cd.market_id}</div>
+                                    <div class="text-xs text-gray-400">止损触发</div>
+                                </div>
+                                <div class="text-orange-400 font-mono">${cd.remaining_hours}小时</div>
+                            </div>
+                        `;
+                    });
+                    document.getElementById('cooldowns').innerHTML = cooldownHtml ||
+                        '<div class="text-gray-500 text-center py-4">无活跃冷却</div>';
+                })
+                .catch(err => {
+                    console.error('获取数据错误:', err);
+                });
+        }
+
+        // Initial update
+        updateDashboard();
+
+        // Refresh every 10 seconds
+        setInterval(updateDashboard, 10000);
+    </script>
+</body>
+</html>

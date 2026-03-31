@@ -1,0 +1,6 @@
+.env
+__pycache__/
+*.pyc
+logs/
+data/keystore.json
+data/llm_cache/

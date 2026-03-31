@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>0x8: Polymarket AI Agent Trading | DeFi Labs</title>
+    <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar">
+        <div class="container">
+            <div class="nav-brand">
+                <a href="../index.html" style="text-decoration: none; display: flex; align-items: center; gap: 8px;">
+                    <span class="brand-icon">DeFi</span>
+                    <span class="brand-text">Labs</span>
+                </a>
+            </div>
+            <div class="nav-links">
+                <a href="../index.html#projects" data-i18n="nav.projects">Projects</a>
+                <a href="../index.html#timeline" data-i18n="nav.timeline">Timeline</a>
+                <a href="../index.html#about" data-i18n="nav.about">About</a>
+                <button id="lang-toggle" class="lang-toggle">中文</button>
+                <button id="theme-toggle" class="theme-toggle" aria-label="Toggle dark mode">
+                    <svg class="icon sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="5"></circle>
+                        <line x1="12" y1="1" x2="12" y2="3"></line>
+                        <line x1="12" y1="21" x2="12" y2="23"></line>
+                        <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+                        <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+                        <line x1="1" y1="12" x2="3" y2="12"></line>
+                        <line x1="21" y1="12" x2="23" y2="12"></line>
+                        <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+                        <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+                    </svg>
+                    <svg class="icon moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+                    </svg>
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Project Detail Hero -->
+    <section class="project-detail-hero">
+        <div class="container">
+            <a href="../index.html" class="back-link">&larr; <span data-i18n="nav.projects">Back to Projects</span></a>
+            <div class="project-header-detail">
+                <span class="project-id-large">0x8</span>
+                <div>
+                    <h1 class="project-title-large">Polymarket AI Agent Trading</h1>
+                    <div class="project-status-badge planned">Planned</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Project Content -->
+    <section class="project-content">
+        <div class="container">
+            <div class="project-sidebar-layout">
+                <!-- Sidebar -->
+                <aside class="project-sidebar">
+                    <div class="sidebar-section">
+                        <h4>Project Info</h4>
+                        <ul class="info-list">
+                            <li><strong>Status:</strong> Planned</li>
+                            <li><strong>Progress:</strong> Research Phase</li>
+                            <li><strong>Platform:</strong> Polymarket</li>
+                            <li><strong>Agent Type:</strong> Autonomous AI</li>
+                        </ul>
+                    </div>
+                    <div class="sidebar-section">
+                        <h4>Tech Stack</h4>
+                        <div class="tech-list">
+                            <span class="tech-tag">Claude</span>
+                            <span class="tech-tag">Python</span>
+                            <span class="tech-tag">Polymarket API</span>
+                            <span class="tech-tag">MCP Tools</span>
+                        </div>
+                    </div>
+                    <div class="sidebar-section">
+                        <h4>Related Projects</h4>
+                        <ul class="related-links">
+                            <li><a href="0x3.html">&larr; 0x3: Hyperliquid Perps</a></li>
+                            <li><a href="0x7.html">&larr; 0x7: Spot Trading CEX</a></li>
+                        </ul>
+                    </div>
+                </aside>
+
+                <!-- Main Content -->
+                <main class="project-main">
+                    <section class="content-section">
+                        <h2>Overview</h2>
+                        <p>
+                            Autonomous AI agent for trading on Polymarket prediction markets. Inspired by a
+                            friend's success with OpenClaw (where an agent turned $5000 virtual funds into
+                            $5090 in one night), this project aims to build a similar system using Claude Code
+                            as the foundation.
+                        </p>
+                        <p>
+                            The agent will independently design trading strategies, monitor Polymarket markets,
+                            and make trading decisions without manual intervention. The goal is to explore the
+                            capabilities of AI in prediction market trading while maintaining proper risk management.
+                        </p>
+                    </section>
+
+                    <section class="content-section">
+                        <h2>Architecture Decision: Claude Code vs OpenClaw</h2>
+                        <div class="feature-card" style="margin-bottom: 16px;">
+                            <h4>Recommendation: Claude Code</h4>
+                            <p style="margin-top: 12px;">
+                                <strong>Why Claude Code is preferred:</strong>
+                            </p>
+                            <ul style="margin-top: 12px; color: var(--text-secondary); padding-left: 20px;">
+                                <li><strong>Full control & transparency</strong> - we own the entire codebase</li>
+                                <li><strong>Already in this environment</strong> - seamless integration</li>
+                                <li><strong>MCP Tools available</strong> - web search, data fetching, etc.</li>
+                                <li><strong>Iterative development</strong> - quickly test and modify strategies</li>
+                                <li><strong>No black box</strong> - understand every decision the agent makes</li>
+                            </ul>
+                        </div>
+                        <div class="feature-card">
+                            <h4>OpenClaw Consideration</h4>
+                            <p style="margin-top: 12px; color: var(--text-secondary);">
+                                OpenClaw is impressive and proven, but as a black-box system it doesn't align
+                                with the lab's research goals of understanding and iterating on every component
+                                of the trading system.
+                            </p>
+                        </div>
+                    </section>
+
+                    <section class="content-section">
+                        <h2>Proposed Architecture</h2>
+                        <div class="features-grid">
+                            <div class="feature-card">
+                                <h4>Market Monitor</h4>
+                                <p>Fetch real-time market data from Polymarket API</p>
+                            </div>
+                            <div class="feature-card">
+                                <h4>News & Sentiment</h4>
+                                <p>Web search and fetch for relevant news and context</p>
+                            </div>
+                            <div class="feature-card">
+                                <h4>Claude Decision Engine</h4>
+                                <p>AI analysis and trading decision making</p>
+                            </div>
+                            <div class="feature-card">
+                                <h4>Risk Manager</h4>
+                                <p>Position sizing, stop-loss, portfolio limits</p>
+                            </div>
+                            <div class="feature-card">
+                                <h4>Execution Engine</h4>
+                                <p>Trade execution via Polymarket API</p>
+                            </div>
+                            <div class="feature-card">
+                                <h4>Logger & Dashboard</h4>
+                                <p>Track performance, decisions, and P&L</p>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="content-section">
+                        <h2>Goals</h2>
+                        <ul class="feature-list">
+                            <li>Replicate the $5000 -> $5090 success (and beyond!)</li>
+                            <li>Build fully transparent, auditable AI trading system</li>
+                            <li>Create reusable framework for AI agent trading</li>
+                            <li>Document strategy evolution and learning</li>
+                            <li>Implement rigorous risk management controls</li>
+                        </ul>
+                    </section>
+
+                    <section class="content-section">
+                        <h2>Key Features (Planned)</h2>
+                        <div class="features-grid">
+                            <div class="feature-card">
+                                <h4>Autonomous Strategy Design</h4>
+                                <p>Agent designs and iterates on its own strategies</p>
+                            </div>
+                            <div class="feature-card">
+                                <h4>Real-time Market Observation</h4>
+                                <p>Continuous monitoring of Polymarket markets</p>
+                            </div>
+                            <div class="feature-card">
+                                <h4>News Context Integration</h4>
+                                <p>Web search for relevant event context</p>
+                            </div>
+                            <div class="feature-card">
+                                <h4>Decision Transparency</h4>
+                                <p>Full logging of reasoning behind each trade</p>
+                            </div>
+                            <div class="feature-card">
+                                <h4>Virtual Trading First</h4>
+                                <p>Paper trading mode before real funds</p>
+                            </div>
+                            <div class="feature-card">
+                                <h4>Performance Analytics</h4>
+                                <p>Track P&L, win rate, and strategy effectiveness</p>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="content-section">
+                        <h2>Implementation Plan</h2>
+                        <div class="timeline-small">
+                            <div class="timeline-small-item">
+                                <div class="timeline-small-dot"></div>
+                                <div>
+                                    <strong>Phase 1: Research</strong>
+                                    <p>Explore Polymarket API, understand market structure</p>
+                                </div>
+                            </div>
+                            <div class="timeline-small-item">
+                                <div class="timeline-small-dot"></div>
+                                <div>
+                                    <strong>Phase 2: Core Engine</strong>
+                                    <p>Build market monitor + basic execution layer</p>
+                                </div>
+                            </div>
+                            <div class="timeline-small-item">
+                                <div class="timeline-small-dot"></div>
+                                <div>
+                                    <strong>Phase 3: AI Integration</strong>
+                                    <p>Hook up Claude as decision engine with MCP tools</p>
+                                </div>
+                            </div>
+                            <div class="timeline-small-item">
+                                <div class="timeline-small-dot"></div>
+                                <div>
+                                    <strong>Phase 4: Testing</strong>
+                                    <p>Run with $5000 virtual funds, measure performance</p>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="content-section">
+                        <h2>Progress</h2>
+                        <div class="progress-bar">
+                            <div class="progress-fill" style="width: 5%"></div>
+                        </div>
+                        <p class="progress-label">Inspiration phase - friend's success validated the concept</p>
+
+                        <p style="margin-top: 24px; color: var(--text-secondary);">
+                            The concept is proven by a friend's implementation using OpenClaw. Now we need
+                            to build our own version using Claude Code, with full transparency and control
+                            over every aspect of the system.
+                        </p>
+                    </section>
+                </main>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-brand">
+                    <span class="brand-icon">DeFi</span>
+                    <span class="brand-text">Labs</span>
+                </div>
+                <p class="footer-affiliation" data-i18n="footer.affiliation">ClusterTech Limited, Hong Kong SAR</p>
+                <p class="footer-copyright" data-i18n="footer.copyright">&copy; 2026 DeFi Labs. All rights reserved.</p>
+            </div>
+        </div>
+    </footer>
+
+    <script src="../js/i18n.js"></script>
+    <script src="../js/main.js"></script>
+</body>
+</html>
