@@ -143,7 +143,7 @@ def _build_user_prompt(question: str, analysis: Dict) -> str:
 class LLMMarketAnalyzer:
     """Calls DeepSeek (via Volcengine ARK) to analyze prediction markets."""
 
-    MODEL = os.getenv("LLM_MODEL", "deepseek-v3.2")
+    MODEL = os.getenv("LLM_MODEL", "deepseek-v4-pro")
 
     def __init__(self):
         api_key = os.getenv("ARK_API_KEY", "")

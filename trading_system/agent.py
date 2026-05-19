@@ -13,6 +13,7 @@ from portfolio import PortfolioManager
 from market_data import MarketData
 from trade_executor import TradeExecutor
 from decision_engine import DecisionEngine
+from risk_manager import RiskManager
 
 
 class TradingAgent:
@@ -25,10 +26,28 @@ class TradingAgent:
         self.market_data = MarketData()
         self.executor = TradeExecutor(self.portfolio)
         self.decision_engine = DecisionEngine(self.portfolio)
+        self.risk_manager = RiskManager(portfolio=self.portfolio, trade_executor=self.executor)
         self.cycle_count = 0
         self.running = True
         self.daily_loss_usd = 0.0
         self.daily_loss_reset_date = datetime.utcnow().date()
+
+        # Optional Phase 2 pipeline for information-edge event scanning
+        self.phase2_pipeline = None
+        self._init_phase2_pipeline()
+
+    def _init_phase2_pipeline(self):
+        """Lazy-init the Phase 2 event scanner pipeline if modules are available."""
+        try:
+            from event_scanner import EventScanner
+            from llm_pricing import LLMPricingEngine
+            self.phase2_scanner = EventScanner()
+            self.phase2_pricer = LLMPricingEngine()
+            self._log("[Phase 2] Event scanner + LLM pricing engine loaded")
+        except Exception as e:
+            self.phase2_scanner = None
+            self.phase2_pricer = None
+            self._log(f"[Phase 2] Not loaded: {e}")
 
     def _log(self, message: str):
         """Log with timestamp"""
@@ -93,21 +112,67 @@ class TradingAgent:
                 self._log(f"Error updating price for {market_id}: {e}")
 
     def _check_daily_loss_limit(self) -> bool:
-        """Return True if we are still within the daily loss limit."""
+        """Return True if we are still within the daily loss limit.
+        Delegates to risk_manager for unified tracking."""
         if config.PAPER_TRADING:
             return True
-        today = datetime.utcnow().date()
-        if today != self.daily_loss_reset_date:
-            self.daily_loss_usd = 0.0
-            self.daily_loss_reset_date = today
-        return self.daily_loss_usd < config.MAX_DAILY_LOSS
+        return self.risk_manager.daily_loss_usd < config.MAX_DAILY_LOSS
 
     def execute_decision(self, decision) -> bool:
-        """Execute a trading decision"""
-        # Daily loss guard (real trading only)
+        """Execute a trading decision, gated by risk_manager.approve()."""
+        # ── Risk gate: route every trade through risk_manager ──
+        # Determine price direction for the amount
+        yes_price = decision.market_data.get('yes_price', 0.5)
+        no_price = decision.market_data.get('no_price', 0.5)
+        decision_type = decision.decision
+
+        # Calculate proposed amount (same logic as before)
+        if decision_type.startswith("BUY"):
+            base_size = config.MAX_POSITION_SIZE * decision.confidence
+
+            # Adjust for risk tier based on price
+            price = yes_price if decision_type == "BUY_YES" else no_price
+            if price >= 0.35:
+                max_size = config.RISK_TIERS['safe']['max_position']
+            elif price >= 0.15:
+                max_size = config.RISK_TIERS['medium']['max_position']
+            elif price >= 0.10:
+                max_size = config.RISK_TIERS['risky']['max_position']
+            else:
+                max_size = 0
+            base_size = min(base_size, max_size)
+
+            if base_size < config.MIN_TRADE_SIZE:
+                self.decision_engine.mark_executed(
+                    decision.decision_id, "Rejected by size filter (below MIN_TRADE_SIZE)")
+                return False
+
+            # Gate through risk_manager
+            edge = abs(yes_price - 0.5)  # Conservative edge estimate for existing strategies
+            approval = self.risk_manager.approve(
+                decision_type=decision_type,
+                market_id=decision.market_id,
+                market_question=decision.market_question,
+                outcome="YES" if decision_type == "BUY_YES" else "NO",
+                amount_usd=base_size,
+                edge=edge,
+                confidence=decision.confidence,
+                category=decision.market_data.get('category', 'Unknown'),
+                is_new_position=decision.market_id not in self.portfolio.portfolio.positions,
+            )
+
+            if not approval["approved"]:
+                self._log(f"⛔ Risk manager blocked: {approval['reason']}")
+                self.decision_engine.mark_executed(
+                    decision.decision_id, f"Rejected by risk manager: {approval['reason']}")
+                return False
+
+        # ── Daily loss limit check (real mode) ──
         if not self._check_daily_loss_limit():
             self._log(f"⛔ Daily loss limit (${config.MAX_DAILY_LOSS}) reached – skipping")
             return False
+
+        # ── Execute ──
 
         # Determine strategy name from reasoning
         strategy = "unknown"
@@ -118,25 +183,6 @@ class TradingAgent:
                 break
 
         if decision.decision == "BUY_YES":
-            # Calculate position size based on confidence and risk
-            base_size = config.MAX_POSITION_SIZE * decision.confidence
-
-            # Adjust for risk tier based on price
-            yes_price = decision.market_data.get('yes_price', 0.5)
-            if yes_price >= 0.35:
-                max_size = config.RISK_TIERS['safe']['max_position']
-            elif yes_price >= 0.15:
-                max_size = config.RISK_TIERS['medium']['max_position']
-            elif yes_price >= 0.10:
-                max_size = config.RISK_TIERS['risky']['max_position']
-            else:
-                max_size = 0  # Don't buy extremely low probability
-
-            base_size = min(base_size, max_size)
-
-            if base_size < config.MIN_TRADE_SIZE:
-                return False
-
             trade = self.executor.execute_buy(
                 market_id=decision.market_id,
                 market_question=decision.market_question,
@@ -152,24 +198,6 @@ class TradingAgent:
                 return True
 
         elif decision.decision == "BUY_NO":
-            base_size = config.MAX_POSITION_SIZE * decision.confidence
-
-            # Adjust for risk tier based on price
-            no_price = decision.market_data.get('no_price', 0.5)
-            if no_price >= 0.35:
-                max_size = config.RISK_TIERS['safe']['max_position']
-            elif no_price >= 0.15:
-                max_size = config.RISK_TIERS['medium']['max_position']
-            elif no_price >= 0.10:
-                max_size = config.RISK_TIERS['risky']['max_position']
-            else:
-                max_size = 0  # Don't buy extremely low probability
-
-            base_size = min(base_size, max_size)
-
-            if base_size < config.MIN_TRADE_SIZE:
-                return False
-
             trade = self.executor.execute_buy(
                 market_id=decision.market_id,
                 market_question=decision.market_question,
@@ -246,6 +274,75 @@ class TradingAgent:
         # Save final state
         self.portfolio.save()
 
+        # ── Phase 2: Event-scanning cycle (every 6 cycles = ~30 min) ──
+        if self.phase2_scanner and self.cycle_count % 6 == 0:
+            try:
+                self._run_phase2_scan()
+            except Exception as e:
+                self._log(f"[Phase 2] Scan error: {e}")
+
+    def _run_phase2_scan(self):
+        """Run the Phase 2 information-edge event scanner and log findings."""
+        self._log("[Phase 2] Scanning Polymarket for information-edge opportunities...")
+
+        # 1. Scan live events from Gamma API
+        events = self.phase2_scanner.scan_markets(limit=50)
+        if not events:
+            self._log("[Phase 2] No events found")
+            return
+
+        self._log(f"[Phase 2] Scanning {len(events)} events for LLM pricing edge...")
+
+        # 2. Price events through LLM (handle missing API key gracefully)
+        try:
+            results = self.phase2_pricer.price_markets(events)
+        except Exception as e:
+            self._log(f"[Phase 2] LLM pricing failed: {e}")
+            return
+
+        # 3. Apply risk manager screen + log candidates
+        flagged_count = 0
+        for r in results:
+            if r.flagged:
+                category = r.category if hasattr(r, 'category') else "Unknown"
+                edge = abs(r.edge)
+                confidence = r.llm_confidence
+                question = r.question[:60]
+
+                self._log(f"[Phase 2] ⚡ CANDIDATE: {question}")
+                self._log(f"           Edge={edge:.1%}  Confidence={confidence:.0%}  Category={category}")
+                self._log(f"           Reasoning: {r.llm_reasoning[:120]}")
+
+                # Check if risk_manager would approve (log only — paper trading)
+                if not config.PAPER_TRADING:
+                    approval = self.risk_manager.approve(
+                        decision_type="BUY_YES" if r.edge > 0 else "BUY_NO",
+                        market_id=r.market_id,
+                        market_question=r.question,
+                        outcome="YES" if r.edge > 0 else "NO",
+                        amount_usd=config.MAX_POSITION_SIZE,
+                        edge=abs(r.edge),
+                        confidence=confidence,
+                        category=category,
+                        is_new_position=True,
+                    )
+                    if approval["approved"]:
+                        self._log(f"[Phase 2] ✅ Risk manager APPROVED")
+                    else:
+                        self._log(f"[Phase 2] ⛔ Risk manager: {approval['reason']}")
+
+                flagged_count += 1
+
+        self._log(f"[Phase 2] Complete — {flagged_count} flagged candidates out of {len(results)} events")
+
+        # 4. Log accuracy stats if available
+        try:
+            stats = self.phase2_pricer.get_accuracy_stats()
+            if stats and stats.get("total_markets", 0) > 0:
+                self._log(f"[Phase 2] Accuracy: {stats['avg_accuracy']:.1%} over {stats['total_markets']} markets")
+        except Exception:
+            pass
+
     def run(self, interval_seconds: int = 300):
         """
         Run the trading agent continuously
@@ -285,9 +382,15 @@ def main():
     parser.add_argument('--once', action='store_true', help='Run once and exit')
     parser.add_argument('--interval', type=int, default=300, help='Interval between cycles in seconds')
     parser.add_argument('--status', action='store_true', help='Just show current status')
+    parser.add_argument('--phase2', action='store_true', help='Run Phase 2 event scan once and exit')
     args = parser.parse_args()
 
     agent = TradingAgent()
+
+    if args.phase2:
+        agent._print_banner()
+        agent._run_phase2_scan()
+        return
 
     if args.status:
         agent._print_banner()

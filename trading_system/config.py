@@ -68,6 +68,11 @@ POLYMARKET_FUNDER = os.getenv("POLYMARKET_FUNDER", "")  # optional proxy wallet
 # Chain ID: 137 = Polygon mainnet
 CHAIN_ID = int(os.getenv("CHAIN_ID", "137"))
 
+# ── LLM / AI Configuration (for event scanner + LLM pricing) ─
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
+LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://api.deepseek.com")
+LLM_MODEL = os.getenv("LLM_MODEL", "deepseek-v4-pro")
+
 # API Endpoints
 GAMMA_API = "https://gamma-api.polymarket.com"
 DATA_API = "https://data-api.polymarket.com"
@@ -77,10 +82,15 @@ CLOB_API = "https://clob.polymarket.com"
 MAX_DAILY_LOSS = float(os.getenv("MAX_DAILY_LOSS", "5.0"))
 
 # Trading Parameters (adjusted for $5 USDC balance)
-INITIAL_CAPITAL = 5.0      # $5 real funds
-MAX_POSITION_SIZE = 2.0    # Max $2 per position
-MAX_TOTAL_EXPOSURE = 5.0   # Max $5 total exposure
-MIN_TRADE_SIZE = 1.0       # Minimum $1 per trade
+# These are defaults; override in .env
+INITIAL_CAPITAL = float(os.getenv("INITIAL_CAPITAL", "5.0"))
+MAX_POSITION_SIZE = float(os.getenv("MAX_POSITION_SIZE", "5.0"))  # Max $5 per position
+MAX_TOTAL_EXPOSURE = float(os.getenv("MAX_TOTAL_EXPOSURE", "10.0"))
+MIN_TRADE_SIZE = float(os.getenv("MIN_TRADE_SIZE", "1.0"))
+
+# Category whitelist for event-scanner style trading.
+# Set ALLOW_WEATHER_MARKETS=true in .env if you have a weather prediction source.
+ALLOW_WEATHER_MARKETS = os.getenv("ALLOW_WEATHER_MARKETS", "true").lower() == "true"
 
 # Risk Management
 MAX_POSITIONS = 3           # Maximum number of open positions

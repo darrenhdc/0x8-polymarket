@@ -273,15 +273,6 @@ class DecisionEngine:
         self.strategy = StrategyEngine()  # fallback heuristics
         self.decisions: List[Decision] = self._load_decisions()
 
-        # Try to initialise the LLM analyzer (requires ARK_API_KEY)
-        self.llm_analyzer = None
-        try:
-            from llm_analyzer import LLMMarketAnalyzer
-            self.llm_analyzer = LLMMarketAnalyzer()
-            print(f"[DecisionEngine] LLM analyzer active (DeepSeek via ARK)")
-        except Exception as e:
-            print(f"[DecisionEngine] LLM analyzer unavailable ({e}); using heuristic strategies")
-
     def _load_decisions(self) -> List[Decision]:
         """Load decision history from disk"""
         os.makedirs(config.DATA_DIR, exist_ok=True)
@@ -343,25 +334,8 @@ class DecisionEngine:
                 # Analyze the market
                 analysis = self.analyzer.analyze_market(market)
 
-                # Get strategy evaluation — LLM first, heuristics as fallback
-                decision_type, confidence, reasoning = "HOLD", 0, "无有效信号"
-                if self.llm_analyzer:
-                    try:
-                        from llm_analyzer import LLMMarketAnalyzer
-                        llm_result = self.llm_analyzer.analyze(
-                            market_id=market.get('id', ''),
-                            question=market.get('question', ''),
-                            market_analysis=analysis,
-                        )
-                        decision_type, confidence, reasoning = (
-                            self.llm_analyzer.to_strategy_signal(llm_result)
-                        )
-                        reasoning = f"[LLM] {reasoning}"
-                    except Exception as e:
-                        print(f"LLM analysis failed for {market.get('id')}: {e}")
-                        decision_type, confidence, reasoning = self.strategy.evaluate(analysis)
-                else:
-                    decision_type, confidence, reasoning = self.strategy.evaluate(analysis)
+                # Get strategy evaluation — heuristic strategies
+                decision_type, confidence, reasoning = self.strategy.evaluate(analysis)
 
                 # Global entry floor for new positions (avoid ultra-low-probability noise)
                 min_entry_price = getattr(config, 'MIN_CONTRARIAN_PRICE', 0.10)
