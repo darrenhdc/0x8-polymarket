@@ -41,10 +41,16 @@ Thumbs.db
 *.csv
 *.json
 *.log
-data/
+*.yml
+*.png
+/data/
+trading_system/data/
 logs/
 backups/
 temp/
+
+# Playwright temp
+.playwright-mcp/
 
 # Secrets & config
 .env
