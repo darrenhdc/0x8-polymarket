@@ -44,10 +44,18 @@ Thumbs.db
 *.yml
 *.png
 /data/
-trading_system/data/
 logs/
 backups/
 temp/
+
+# Runtime data directories (any level)
+**/data/*.json
+**/data/*.csv
+**/data/*.db
+**/data/*.db-shm
+**/data/*.db-wal
+**/data/keystore.json
+**/data/llm_cache/
 
 # Playwright temp
 .playwright-mcp/
