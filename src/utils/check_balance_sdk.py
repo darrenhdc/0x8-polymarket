@@ -7,7 +7,7 @@ import requests
 from dotenv import load_dotenv
 from py_clob_client.signing.hmac import build_hmac_signature
 
-import config
+from src.core import config
 
 
 def _clob_balance_via_api_creds() -> dict:
@@ -40,7 +40,7 @@ def _clob_balance_via_api_creds() -> dict:
 
 
 def main():
-    load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
+    load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "trading_system", ".env"))
     print("=== SDK-style CLOB balance check (no private key input) ===")
 
     try:

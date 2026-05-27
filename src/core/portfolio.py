@@ -6,7 +6,7 @@ import os
 from datetime import datetime
 from typing import Dict, List, Optional
 from dataclasses import dataclass, asdict
-import config
+from . import config
 
 
 @dataclass

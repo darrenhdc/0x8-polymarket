@@ -21,7 +21,7 @@ import os
 from datetime import datetime, timedelta
 from typing import Dict, Optional, List
 
-import config
+from src.core import config
 
 # ── Constants ─────────────────────────────────────────────────
 

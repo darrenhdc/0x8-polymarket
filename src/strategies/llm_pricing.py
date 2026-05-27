@@ -24,10 +24,11 @@ from dotenv import load_dotenv
 
 from openai import OpenAI
 
-import config
+from src.core.config import *
+import src.core.config as config
 
 # ── Ensure .env loaded ────────────────────────────────────────
-load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
+load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "trading_system", ".env"))
 
 # ── Constants ─────────────────────────────────────────────────
 
@@ -468,7 +469,7 @@ class LLMPricingEngine:
 # ── CLI test ──────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    from event_scanner import EventScanner
+    from src.data.event_scanner import EventScanner
 
     print("LLM Pricing Engine Test")
     print("=" * 60)
@@ -482,7 +483,7 @@ if __name__ == "__main__":
     if not markets:
         print("No markets found. Testing with fallback data...")
         # Use dummy data for testing
-        from event_scanner import EventMarket
+        from src.data.event_scanner import EventMarket
         markets = [
             EventMarket(
                 market_id="test_1",

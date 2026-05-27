@@ -19,8 +19,8 @@ from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass, asdict
 
-import config
-from market_data import PolymarketAPI
+from src.core import config
+from .market_data import PolymarketAPI
 
 
 # ── Category filtering ────────────────────────────────────────

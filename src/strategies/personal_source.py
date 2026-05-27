@@ -32,7 +32,7 @@ import os
 from datetime import datetime
 from typing import Dict, List, Optional
 
-from prediction_source import (
+from src.data.prediction_interface import (
     PredictionSource,
     Prediction,
     MarketContext,
@@ -179,10 +179,9 @@ class PersonalPredictionSource(PredictionSource):
 
 if __name__ == "__main__":
     import sys
-    sys.path.insert(0, os.path.dirname(__file__))
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
-    # Create a demo prediction file
-    demo_path = os.path.join(os.path.dirname(__file__), "data", "weather_predictions.json")
+    demo_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "data", "weather_predictions.json")
     os.makedirs(os.path.dirname(demo_path), exist_ok=True)
 
     demo_predictions = [

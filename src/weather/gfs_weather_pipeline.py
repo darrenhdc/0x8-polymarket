@@ -21,10 +21,10 @@ import sys
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
-import config
-from prediction_source import PredictionRegistry, get_registry, MarketContext
-from personal_source import PersonalPredictionSource
-from gfs_weather_source import (
+from src.core import config
+from src.data.prediction_interface import PredictionRegistry, get_registry, MarketContext
+from src.strategies.personal_source import PersonalPredictionSource
+from src.weather.gfs_weather_source import (
     GFSWeatherSource,
     prob_exceed_threshold,
     fetch_gfs_forecast,
@@ -32,9 +32,9 @@ from gfs_weather_source import (
     extract_threshold,
     extract_date,
 )
-from edge_composer import EdgeComposer, compute_edge
-from risk_manager import RiskManager
-from backtester import Backtester
+from src.data.edge_composer import EdgeComposer, compute_edge
+from src.risk.risk_manager import RiskManager
+from src.backtest.backtester import Backtester
 
 
 # ── Pipeline ────────────────────────────────────────────────────
@@ -68,7 +68,7 @@ class GFSWeatherPipeline:
         # Step 1: Scan Polymarket for weather markets
         print("\n[1/4] Scanning Polymarket for temperature markets...")
         try:
-            from event_scanner import EventScanner
+            from src.data.event_scanner import EventScanner
             scanner = EventScanner()
             all_markets = scanner.scan_markets(limit=500)
         except Exception as e:

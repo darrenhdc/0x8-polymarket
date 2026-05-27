@@ -16,7 +16,7 @@ from datetime import datetime
 from typing import Dict, List, Optional
 from dataclasses import dataclass, field, asdict
 
-import config
+from src.core import config
 
 
 @dataclass

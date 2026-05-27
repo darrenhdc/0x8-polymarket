@@ -17,7 +17,7 @@ from py_clob_client.clob_types import (
     OrderType,
 )
 
-import config
+from src.core import config
 
 
 class RealTradingClient:

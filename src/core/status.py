@@ -4,13 +4,12 @@ Quick status check script
 """
 import sys
 import os
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from datetime import datetime
-from portfolio import PortfolioManager
-from market_data import MarketData
-from trade_executor import TradeExecutor
-from decision_engine import DecisionEngine
+from .portfolio import PortfolioManager
+from src.data.market_data import MarketData
+from src.execution.trade_executor import TradeExecutor
+from src.strategies.decision_engine import DecisionEngine
 import json
 
 

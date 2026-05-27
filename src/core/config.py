@@ -4,7 +4,10 @@ Polymarket AI Trading System Configuration
 import os
 from dotenv import load_dotenv
 
-load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+_TRADING_SYSTEM_DIR = os.path.join(_PROJECT_ROOT, "trading_system")
+
+load_dotenv(os.path.join(_TRADING_SYSTEM_DIR, ".env"))
 
 # ── Trading Mode ──────────────────────────────────────────────
 # Set PAPER_TRADING=false in .env to enable real trading
@@ -17,7 +20,7 @@ PAPER_TRADING = os.getenv("PAPER_TRADING", "true").lower() == "true"
 POLYMARKET_PRIVATE_KEY = os.getenv("POLYMARKET_PRIVATE_KEY", "")
 
 # Keystore file — default: data/keystore.json (created by create_keystore.py)
-_DEFAULT_KEYSTORE = os.path.join(os.path.dirname(__file__), "data", "keystore.json")
+_DEFAULT_KEYSTORE = os.path.join(_TRADING_SYSTEM_DIR, "data", "keystore.json")
 KEYSTORE_FILE = os.getenv("KEYSTORE_FILE") or _DEFAULT_KEYSTORE
 
 
@@ -137,8 +140,8 @@ RISK_TIERS = {
 }
 
 # Logging
-LOG_DIR = os.path.join(os.path.dirname(__file__), "logs")
-DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
+LOG_DIR = os.path.join(_TRADING_SYSTEM_DIR, "logs")
+DATA_DIR = os.path.join(_TRADING_SYSTEM_DIR, "data")
 
 # State files
 PORTFOLIO_FILE = os.path.join(DATA_DIR, "portfolio.json")

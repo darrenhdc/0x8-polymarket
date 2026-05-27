@@ -7,9 +7,10 @@ import os
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass, asdict
-import config
-from portfolio import PortfolioManager
-from market_data import MarketData, MarketScanner
+from src.core.config import *
+import src.core.config as config
+from src.core.portfolio import PortfolioManager
+from src.data.market_data import MarketData, MarketScanner
 
 
 @dataclass

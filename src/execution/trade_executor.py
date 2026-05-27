@@ -6,10 +6,10 @@ import os
 from datetime import datetime
 from typing import Dict, List, Optional
 from dataclasses import dataclass, asdict
-import config
-from portfolio import PortfolioManager
-from market_data import MarketData
-from trade_journal import TradeJournal
+from src.core import config
+from src.core.portfolio import PortfolioManager
+from src.data.market_data import MarketData
+from .trade_journal import TradeJournal
 
 
 @dataclass
@@ -45,7 +45,7 @@ class TradeExecutor:
         self.real_client = None
 
         if not config.PAPER_TRADING:
-            from real_trading_client import RealTradingClient
+            from .real_trading_client import RealTradingClient
             self.real_client = RealTradingClient()
             self._sync_cash_from_exchange()
             print("🔴 REAL TRADING MODE – orders will be sent to Polymarket")

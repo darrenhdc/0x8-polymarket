@@ -14,7 +14,7 @@ import getpass
 
 
 def main():
-    import config
+    from . import config
 
     # Resolve private key: env var → keystore (password) → interactive prompt
     pk = config._resolve_private_key()
@@ -26,7 +26,7 @@ def main():
     print(f"   Mode: {'PAPER' if config.PAPER_TRADING else '🔴 REAL'}")
     print(f"   Funder: {config.POLYMARKET_FUNDER}")
 
-    from agent import main as agent_main
+    from .agent import main as agent_main
     agent_main()
 
 

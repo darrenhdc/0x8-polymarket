@@ -14,14 +14,10 @@ run_gfs_backtest.py — 真实 GFS 历史回测入口脚本
 """
 
 import argparse
-import sys
-import os
 from datetime import datetime, timedelta
 
-sys.path.insert(0, os.path.dirname(__file__))
-
-from backtester import Backtester
-from gfs_weather_source import CITIES
+from src.backtest.backtester import Backtester
+from src.weather.gfs_weather_source import CITIES
 
 
 def parse_args():

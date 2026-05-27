@@ -8,12 +8,12 @@ import os
 import sys
 from datetime import datetime
 from typing import Optional
-import config
-from portfolio import PortfolioManager
-from market_data import MarketData
-from trade_executor import TradeExecutor
-from decision_engine import DecisionEngine
-from risk_manager import RiskManager
+from . import config
+from .portfolio import PortfolioManager
+from src.data.market_data import MarketData
+from src.execution.trade_executor import TradeExecutor
+from src.strategies.decision_engine import DecisionEngine
+from src.risk.risk_manager import RiskManager
 
 
 class TradingAgent:
@@ -39,8 +39,8 @@ class TradingAgent:
     def _init_phase2_pipeline(self):
         """Lazy-init the Phase 2 event scanner pipeline if modules are available."""
         try:
-            from event_scanner import EventScanner
-            from llm_pricing import LLMPricingEngine
+            from src.data.event_scanner import EventScanner
+            from src.strategies.llm_pricing import LLMPricingEngine
             self.phase2_scanner = EventScanner()
             self.phase2_pricer = LLMPricingEngine()
             self._log("[Phase 2] Event scanner + LLM pricing engine loaded")

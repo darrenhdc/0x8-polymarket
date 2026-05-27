@@ -6,11 +6,11 @@ from flask import Flask, render_template, jsonify
 import json
 import os
 from datetime import datetime, timedelta
-import config
+from src.core import config
 
 app = Flask(__name__)
 
-DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
+DATA_DIR = config.DATA_DIR
 
 
 def load_json(filename):

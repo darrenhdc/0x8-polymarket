@@ -27,10 +27,10 @@ from datetime import datetime
 from typing import Dict, List, Optional
 
 # Import all system modules
-import config
-from event_scanner import EventScanner
-from llm_pricing import LLMPricingEngine, PricingResult
-from risk_manager import RiskManager
+from src.core import config
+from .event_scanner import EventScanner
+from src.strategies.llm_pricing import LLMPricingEngine, PricingResult
+from src.risk.risk_manager import RiskManager
 
 
 # ── Config overrides from Phase 2 spec ────────────────────────

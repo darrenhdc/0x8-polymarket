@@ -31,9 +31,9 @@ import math
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 
-import config
-from historical_data import HistoricalCollector, HISTORICAL_DIR
-from gfs_weather_source import (
+from src.core import config
+from src.backtest.historical_data import HistoricalCollector, HISTORICAL_DIR
+from src.weather.gfs_weather_source import (
     find_city_coords, extract_threshold, extract_date,
     fetch_gfs_historical_forecast, fetch_observed_temperature,
     prob_exceed_threshold, CITIES,

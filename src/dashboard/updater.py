@@ -3,14 +3,9 @@ Background price updater for dashboard
 Updates portfolio prices every 60 seconds
 """
 import time
-import sys
-import os
 
-# Add parent dir to path
-sys.path.insert(0, os.path.dirname(__file__))
-
-from portfolio import PortfolioManager
-from market_data import MarketData
+from src.core.portfolio import PortfolioManager
+from src.data.market_data import MarketData
 
 def update_prices():
     """Update prices for all positions"""

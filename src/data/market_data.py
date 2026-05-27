@@ -5,7 +5,7 @@ import json
 import requests
 from typing import Dict, List, Optional
 from datetime import datetime, timedelta
-import config
+from src.core import config
 
 
 class PolymarketAPI:

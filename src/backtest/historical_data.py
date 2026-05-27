@@ -17,7 +17,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 
 import requests
-import config
+from src.core import config
 
 
 HISTORICAL_DIR = os.path.join(config.DATA_DIR, "historical")
@@ -76,7 +76,7 @@ class HistoricalCollector:
         """
         if markets is None:
             try:
-                from market_data import MarketData
+                from src.data.market_data import MarketData
                 md = MarketData()
                 markets = md.scan_opportunities()
             except Exception as e:

@@ -25,10 +25,10 @@ from dotenv import load_dotenv
 
 from openai import OpenAI
 
-import config
+from src.core import config
 
 # Ensure .env is loaded (config.py already does this, but guard for standalone use)
-load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
+load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "trading_system", ".env"))
 
 # ── Cache ────────────────────────────────────────────────────
 CACHE_DIR = os.path.join(config.DATA_DIR, "llm_cache")
@@ -263,7 +263,7 @@ class LLMMarketAnalyzer:
 # ── CLI test ─────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    from market_data import MarketData
+    from .market_data import MarketData
 
     md = MarketData()
     analyzer = LLMMarketAnalyzer()
@@ -276,7 +276,7 @@ if __name__ == "__main__":
         print(f"\n{'='*60}")
         print(f"Market: {q}")
 
-        from decision_engine import MarketAnalyzer
+        from src.strategies.decision_engine import MarketAnalyzer
         ma = MarketAnalyzer(md)
         analysis = ma.analyze_market(m)
 

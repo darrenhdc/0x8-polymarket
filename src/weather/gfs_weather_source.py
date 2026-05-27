@@ -21,7 +21,7 @@ from typing import Dict, List, Optional
 
 import requests
 
-from prediction_source import PredictionSource, Prediction, MarketContext
+from src.data.prediction_interface import PredictionSource, Prediction, MarketContext
 
 
 # ── City coordinates (lat, lon) for common Polymarket weather cities ──

@@ -3,12 +3,8 @@
 Remove sensitive position from portfolio
 """
 import sys
-import os
 
-# Add parent dir to path
-sys.path.insert(0, os.path.dirname(__file__))
-
-from portfolio import PortfolioManager
+from src.core.portfolio import PortfolioManager
 
 def main():
     pm = PortfolioManager()

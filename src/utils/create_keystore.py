@@ -11,7 +11,7 @@ import sys
 
 from eth_account import Account
 
-KEYSTORE_PATH = os.path.join(os.path.dirname(__file__), "data", "keystore.json")
+KEYSTORE_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "trading_system", "data", "keystore.json")
 
 
 def main():
