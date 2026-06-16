@@ -95,6 +95,11 @@ MIN_TRADE_SIZE = float(os.getenv("MIN_TRADE_SIZE", "1.0"))
 # Set ALLOW_WEATHER_MARKETS=true in .env if you have a weather prediction source.
 ALLOW_WEATHER_MARKETS = os.getenv("ALLOW_WEATHER_MARKETS", "true").lower() == "true"
 
+# Generic event trading (LLM + 5 heuristic strategies) is DEPRECATED.
+# Experiment result: 7.7% win rate, -4.74% ROI over 7 days paper trading.
+# Do not re-enable without new walk-forward + IC validation.
+ENABLE_GENERIC_TRADING = os.getenv("ENABLE_GENERIC_TRADING", "false").lower() == "true"
+
 # Risk Management
 MAX_POSITIONS = 3           # Maximum number of open positions
 STOP_LOSS_PERCENT = 0.15  # 15% stop loss

@@ -66,6 +66,41 @@ def _loads_maybe(value, default):
     return value
 
 
+def _timestamp_to_utc_iso(value) -> str:
+    """Normalize CLOB timestamps to UTC ISO-8601 strings."""
+    if isinstance(value, (int, float)):
+        return datetime.fromtimestamp(value, tz=timezone.utc).isoformat()
+
+    text = str(value)
+    if text.isdigit():
+        return datetime.fromtimestamp(int(text), tz=timezone.utc).isoformat()
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc).isoformat()
+    except ValueError:
+        return text
+
+
+def _normalize_price_point(item: dict) -> Optional[dict]:
+    """Convert a CLOB or already-normalized point to {timestamp, price}."""
+    if not isinstance(item, dict):
+        return None
+
+    timestamp_value = item.get("timestamp", item.get("t", item.get("time")))
+    price_value = item.get("price", item.get("p", item.get("value")))
+    if timestamp_value is None or price_value is None:
+        return None
+
+    try:
+        price = float(price_value)
+    except (TypeError, ValueError):
+        return None
+
+    return {"timestamp": _timestamp_to_utc_iso(timestamp_value), "price": price}
+
+
 def is_weather_market(question: str, tags: Iterable = ()) -> bool:
     combined = question.lower()
     for tag in tags or []:
@@ -453,34 +488,86 @@ class PolymarketHistoryCollector:
         fidelity_minutes: int = 1440,
         limit_markets: Optional[int] = None,
         sleep_seconds: float = 0.15,
+        city: Optional[str] = None,
+        market_type: Optional[str | Iterable[str]] = None,
+        target_start_date: Optional[str] = None,
+        target_end_date: Optional[str] = None,
+        include_active_overlap: bool = False,
+        skip_existing: bool = False,
     ) -> int:
-        query = """
+        clauses = ["clob_token_ids IS NOT NULL", "clob_token_ids != '[]'"]
+        params: list[object] = []
+        if city:
+            clauses.append("lower(city) = lower(?)")
+            params.append(city)
+        if market_type:
+            if isinstance(market_type, str):
+                clauses.append("market_type = ?")
+                params.append(market_type)
+            else:
+                market_types = list(market_type)
+                if market_types:
+                    placeholders = ",".join("?" for _ in market_types)
+                    clauses.append(f"market_type IN ({placeholders})")
+                    params.extend(market_types)
+        if target_start_date and target_end_date and include_active_overlap:
+            clauses.append(
+                """
+                (
+                    target_date BETWEEN ? AND ?
+                    OR (
+                        active = 1
+                        AND COALESCE(start_date, target_date) <= ?
+                        AND COALESCE(end_date, target_date) >= ?
+                    )
+                )
+                """
+            )
+            params.extend(
+                [target_start_date, target_end_date, target_end_date, target_start_date]
+            )
+        else:
+            if target_start_date:
+                clauses.append("target_date >= ?")
+                params.append(target_start_date)
+            if target_end_date:
+                clauses.append("target_date <= ?")
+                params.append(target_end_date)
+        if skip_existing:
+            clauses.append("id NOT IN (SELECT DISTINCT market_id FROM price_history)")
+
+        query = f"""
             SELECT id, clob_token_ids, start_date, end_date, target_date
             FROM markets
-            WHERE clob_token_ids IS NOT NULL AND clob_token_ids != '[]'
+            WHERE {' AND '.join(clauses)}
             ORDER BY end_date
         """
         if limit_markets:
             query += f" LIMIT {int(limit_markets)}"
+
         written = 0
-        for row in self.conn.execute(query):
+        for row in self.conn.execute(query, params):
             token_ids = _loads_maybe(row["clob_token_ids"], [])
             if not token_ids:
                 continue
             yes_token = str(token_ids[0])
             price_start, price_end = _market_price_window(row, start_date, end_date)
-            points = self.fetch_price_history(
-                yes_token,
-                start_date=price_start,
-                end_date=price_end,
-                fidelity_minutes=fidelity_minutes,
-            )
-            written += self.insert_price_points(
-                market_id=row["id"],
-                token_id=yes_token,
-                points=points,
-                fidelity_minutes=fidelity_minutes,
-            )
+            try:
+                points = self.fetch_price_history(
+                    yes_token,
+                    start_date=price_start,
+                    end_date=price_end,
+                    fidelity_minutes=fidelity_minutes,
+                )
+                written += self.ingest_price_history(
+                    row["id"],
+                    yes_token,
+                    points,
+                    fidelity_minutes=fidelity_minutes,
+                    commit=False,
+                )
+            except (requests.RequestException, ValueError) as exc:
+                print(f"[prices] WARN: {row['id']}: {exc}")
             time.sleep(sleep_seconds)
         self.conn.commit()
         return written
@@ -512,10 +599,37 @@ class PolymarketHistoryCollector:
             )
             if resp.status_code == 200:
                 for item in resp.json().get("history", []):
-                    ts = datetime.fromtimestamp(item["t"], tz=timezone.utc).isoformat()
-                    points[ts] = float(item["p"])
+                    point = _normalize_price_point(item)
+                    if point is not None:
+                        points[point["timestamp"]] = point["price"]
             current = segment_end
         return [{"timestamp": ts, "price": price} for ts, price in sorted(points.items())]
+
+    def ingest_price_history(
+        self,
+        market_id: str,
+        token_id: str,
+        history: Iterable[dict],
+        fidelity_minutes: int = 1440,
+        *,
+        commit: bool = True,
+    ) -> int:
+        """Insert raw CLOB prices-history rows for one market.
+
+        The CLOB endpoint returns rows as {"t": unix_seconds, "p": price}; older
+        pipeline code calls this method directly.  It also accepts normalized
+        {"timestamp": iso8601, "price": value} points for compatibility with
+        fetch_price_history().
+        """
+        inserted = self.insert_price_points(
+            market_id=market_id,
+            token_id=token_id,
+            points=list(history),
+            fidelity_minutes=fidelity_minutes,
+        )
+        if commit:
+            self.conn.commit()
+        return inserted
 
     def insert_price_points(
         self,
@@ -525,6 +639,23 @@ class PolymarketHistoryCollector:
         points: list[dict],
         fidelity_minutes: int,
     ) -> int:
+        rows = []
+        for point in points:
+            normalized = _normalize_price_point(point)
+            if normalized is None:
+                continue
+            rows.append(
+                (
+                    market_id,
+                    token_id,
+                    normalized["timestamp"],
+                    normalized["price"],
+                    fidelity_minutes,
+                )
+            )
+        if not rows:
+            return 0
+
         before = self.conn.total_changes
         self.conn.executemany(
             """
@@ -533,10 +664,7 @@ class PolymarketHistoryCollector:
             )
             VALUES (?, ?, ?, ?, ?)
             """,
-            [
-                (market_id, token_id, point["timestamp"], point["price"], fidelity_minutes)
-                for point in points
-            ],
+            rows,
         )
         return self.conn.total_changes - before
 

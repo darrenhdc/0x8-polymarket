@@ -22,7 +22,8 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
 from src.core import config
-from src.data.prediction_interface import PredictionRegistry, get_registry, MarketContext
+from src.data.prediction_interface import MarketContext
+from src.data.prediction_registry import PredictionRegistry, get_registry
 from src.strategies.personal_source import PersonalPredictionSource
 from src.weather.gfs_weather_source import (
     GFSWeatherSource,

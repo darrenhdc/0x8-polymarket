@@ -242,6 +242,12 @@ class TradingAgent:
         self._print_status()
         self._print_positions()
 
+        # Skip generic event trading if disabled (default: disabled)
+        if not config.ENABLE_GENERIC_TRADING:
+            self._log("[GENERIC] Generic event trading is DISABLED. Focus: GFS weather only.")
+            self.portfolio.save()
+            return
+
         # Scan for market opportunities
         self._log("Scanning markets...")
         try:

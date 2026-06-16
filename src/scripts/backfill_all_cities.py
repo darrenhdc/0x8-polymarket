@@ -21,19 +21,10 @@ Rate-limit: --sleep controls seconds between API requests (default 1.0).
 from __future__ import annotations
 
 import argparse
-import json
-import time
-from datetime import date, datetime
-from pathlib import Path
-from typing import Optional
+from datetime import date
 
-import requests
-
-from src.data.database import (
-    connect_gfs, connect_markets,
-    init_gfs_db, init_weather_db,
-)
-from src.data.geocoding import KNOWN_LOCATIONS, Location, normalize_location_id
+from src.data.database import connect_markets, init_weather_db
+from src.data.geocoding import Location, normalize_location_id
 from src.data.gfs_history import GFSHistoryCollector
 from src.data.polymarket_history import PolymarketHistoryCollector
 
@@ -95,13 +86,81 @@ def _has_data_for_range(
         "SELECT COUNT(*) FROM markets WHERE city=? AND target_date BETWEEN ? AND ?",
         (city_display, start, end),
     ).fetchone()[0]
-    n_prices = market_conn.execute(
-        """SELECT COUNT(*) FROM price_history p
-           JOIN markets m ON m.id = p.market_id
-           WHERE m.city=? AND substr(p.timestamp,1,10) BETWEEN ? AND ?""",
-        (city_display, start, end),
+    n_priceable_markets = market_conn.execute(
+        """
+        SELECT COUNT(*)
+        FROM markets
+        WHERE city = ?
+          AND market_type IN ('temp_above', 'precip', 'snow')
+          AND clob_token_ids IS NOT NULL
+          AND clob_token_ids != '[]'
+          AND (
+              target_date BETWEEN ? AND ?
+              OR (
+                  active = 1
+                  AND COALESCE(start_date, target_date) <= ?
+                  AND COALESCE(end_date, target_date) >= ?
+              )
+          )
+        """,
+        (city_display, start, end, end, start),
     ).fetchone()[0]
-    return {"markets": n_markets > 0, "prices": n_prices > 0}
+    n_priced_markets = market_conn.execute(
+        """
+        SELECT COUNT(DISTINCT m.id)
+        FROM markets m
+        JOIN price_history p ON p.market_id = m.id
+        WHERE m.city = ?
+          AND m.market_type IN ('temp_above', 'precip', 'snow')
+          AND m.clob_token_ids IS NOT NULL
+          AND m.clob_token_ids != '[]'
+          AND (
+              m.target_date BETWEEN ? AND ?
+              OR (
+                  m.active = 1
+                  AND COALESCE(m.start_date, m.target_date) <= ?
+                  AND COALESCE(m.end_date, m.target_date) >= ?
+              )
+          )
+        """,
+        (city_display, start, end, end, start),
+    ).fetchone()[0]
+    n_live_markets = market_conn.execute(
+        """
+        SELECT COUNT(*)
+        FROM markets
+        WHERE city = ?
+          AND market_type IN ('temp_above', 'precip', 'snow')
+          AND clob_token_ids IS NOT NULL
+          AND clob_token_ids != '[]'
+          AND active = 1
+          AND COALESCE(start_date, target_date) <= ?
+          AND COALESCE(end_date, target_date) >= ?
+        """,
+        (city_display, end, end),
+    ).fetchone()[0]
+    n_live_markets_with_fresh_prices = market_conn.execute(
+        """
+        SELECT COUNT(DISTINCT m.id)
+        FROM markets m
+        JOIN price_history p ON p.market_id = m.id
+        WHERE m.city = ?
+          AND m.market_type IN ('temp_above', 'precip', 'snow')
+          AND m.clob_token_ids IS NOT NULL
+          AND m.clob_token_ids != '[]'
+          AND m.active = 1
+          AND COALESCE(m.start_date, m.target_date) <= ?
+          AND COALESCE(m.end_date, m.target_date) >= ?
+          AND substr(p.timestamp, 1, 10) = ?
+        """,
+        (city_display, end, end, end),
+    ).fetchone()[0]
+    prices_complete = (
+        n_priceable_markets > 0
+        and n_priced_markets >= n_priceable_markets
+        and n_live_markets_with_fresh_prices >= n_live_markets
+    )
+    return {"markets": n_markets > 0, "prices": prices_complete}
 
 
 # ---------------------------------------------------------------------------
@@ -157,72 +216,20 @@ def backfill_prices(
         print(f"  [prices] DRY-RUN — skipping")
         return 0
 
-    market_conn = connect_markets()
-    market_conn.row_factory = __import__("sqlite3").Row
-    init_weather_db(market_conn)
-
-    markets = market_conn.execute(
-        """
-        SELECT id, clob_token_ids FROM markets
-        WHERE city = ?
-          AND target_date BETWEEN ? AND ?
-          AND market_type IN ('temp_above','precip','snow')
-        """,
-        (city_display, start, end),
-    ).fetchall()
-    market_conn.close()
-
-    if not markets:
-        print(f"  [prices] No markets in DB for {city_display} in range — run discover first")
-        return 0
-
-    CLOB_PRICES_HISTORY_URL = "https://clob.polymarket.com/prices-history"
-    session = requests.Session()
     collector = PolymarketHistoryCollector()
-    total = 0
-
     try:
-        for mkt in markets:
-            token_ids = mkt["clob_token_ids"]
-            if isinstance(token_ids, str):
-                try:
-                    token_ids = json.loads(token_ids)
-                except Exception:
-                    continue
-            if not token_ids:
-                continue
-
-            yes_token = token_ids[0]
-            start_ts = int(datetime.fromisoformat(start).timestamp())
-            end_ts   = int(datetime.fromisoformat(end).timestamp())
-
-            # Fetch in 14-day windows
-            cursor = start_ts
-            WINDOW = 14 * 86400
-            while cursor < end_ts:
-                chunk_end = min(cursor + WINDOW, end_ts)
-                try:
-                    resp = session.get(
-                        CLOB_PRICES_HISTORY_URL,
-                        params={
-                            "market": yes_token,
-                            "startTs": cursor,
-                            "endTs": chunk_end,
-                            "fidelity": 1440,
-                        },
-                        timeout=20,
-                    )
-                    if resp.status_code == 200:
-                        history = resp.json().get("history", [])
-                        if history:
-                            collector.ingest_price_history(mkt["id"], yes_token, history)
-                            total += len(history)
-                    time.sleep(sleep)
-                except Exception as exc:
-                    print(f"    [prices] WARN: {mkt['id']}: {exc}")
-                cursor = chunk_end
-
-        print(f"  [prices] Ingested {total} price rows for {city_display}")
+        total = collector.backfill_price_history(
+            start_date=start,
+            end_date=end,
+            fidelity_minutes=1440,
+            sleep_seconds=sleep,
+            city=city_display,
+            market_type=("temp_above", "precip", "snow"),
+            target_start_date=start,
+            target_end_date=end,
+            include_active_overlap=True,
+        )
+        print(f"  [prices] Inserted {total} new price rows for {city_display}")
         return total
     finally:
         collector.close()

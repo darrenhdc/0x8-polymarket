@@ -179,7 +179,7 @@ def run(
         FROM markets m
         WHERE m.target_date > ?
           AND m.resolved_outcome IS NULL
-          AND m.market_type IN ('temp_above', 'precip', 'snow')
+          AND m.market_type IN ('temp_above')
           AND m.threshold_value IS NOT NULL
           AND m.city IS NOT NULL
           AND m.latitude IS NOT NULL

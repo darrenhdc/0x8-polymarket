@@ -248,6 +248,8 @@ class GFSHistoryCollector:
             variables = list(MARKET_VARIABLES.values())  # [("temperature_2m_max","C"), ...]
             variables = [v for v, _ in MARKET_VARIABLES.values()]
             variables = list({v for v, _ in MARKET_VARIABLES.values()})
+            if "temperature_2m_min" not in variables:
+                variables.append("temperature_2m_min")
 
         locations_query = """
             SELECT DISTINCT city, country, latitude, longitude
@@ -275,7 +277,13 @@ class GFSHistoryCollector:
             )
             self.upsert_location(location)
 
-            for variable, unit in MARKET_VARIABLES.values():
+            # Collect all (variable, unit) pairs from market types + extra variables
+            var_units = list(MARKET_VARIABLES.values())
+            for extra_var in variables:
+                if extra_var not in [v for v, _ in var_units]:
+                    var_units.append((extra_var, "C"))
+
+            for variable, unit in var_units:
                 # GFS historical forecasts
                 forecast_values = self.fetch_historical_forecast_batch(
                     location.latitude,

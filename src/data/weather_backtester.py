@@ -122,8 +122,8 @@ class WeatherBacktester:
                 p.timestamp, p.price
             FROM markets m
             JOIN price_history p ON p.market_id = m.id
-            WHERE substr(p.timestamp, 1, 10) BETWEEN ? AND ?
-              AND m.market_type IN ('temp_above', 'precip', 'snow')
+              WHERE substr(p.timestamp, 1, 10) BETWEEN ? AND ?
+              AND m.market_type IN ('temp_above')
               AND m.threshold_value IS NOT NULL
               AND m.target_date IS NOT NULL
               AND m.city IS NOT NULL
@@ -135,7 +135,7 @@ class WeatherBacktester:
 
         for row in rows:
             location_id = normalize_location_id(row["city"], row["country"])
-            variable, _unit = MARKET_VARIABLES[row["market_type"]]
+            variable = infer_market_variable(row["question"], row["market_type"])
             price_date = row["timestamp"][:10]
 
             forecast = self._forecast(location_id, row["target_date"], variable)
@@ -310,7 +310,6 @@ class WeatherBacktester:
             (pandas.DataFrame-compatible)
         """
         from .edge_composer import compute_edge as _compute_edge
-        from .gfs_prediction import VARIABLE_MAP
 
         source = prediction_source or self._get_or_create_prediction_source()
 
@@ -330,7 +329,7 @@ class WeatherBacktester:
             FROM markets m
             JOIN price_history p ON p.market_id = m.id
             WHERE substr(p.timestamp, 1, 10) BETWEEN ? AND ?
-              AND m.market_type IN ('temp_above', 'precip', 'snow')
+              AND m.market_type IN ('temp_above')
               AND m.threshold_value IS NOT NULL
               AND m.target_date IS NOT NULL
               AND m.city IS NOT NULL
@@ -341,11 +340,10 @@ class WeatherBacktester:
         ).fetchall()
 
         results: list[dict] = []
-        variable_map = VARIABLE_MAP
 
         for row in rows:
             location_id = normalize_location_id(row["city"], row["country"])
-            variable = variable_map.get(row["market_type"], "temperature_2m_max")
+            variable = infer_market_variable(row["question"], row["market_type"])
             price_date = row["timestamp"][:10]
 
             if max_lead_time_hours is not None:
@@ -511,6 +509,19 @@ def infer_market_rule(question: str, market_type: str) -> str:
     if market_type in ("precip", "snow"):
         return "gte"
     return "eq"
+
+
+def infer_market_variable(question: str, market_type: str) -> str:
+    """Infer GFS variable from market question text.
+    
+    'lowest'/'minimum' temperature → temperature_2m_min, else temperature_2m_max.
+    """
+    if market_type == "temp_above":
+        q = question.lower()
+        if "lowest" in q or "minimum" in q:
+            return "temperature_2m_min"
+        return "temperature_2m_max"
+    return MARKET_VARIABLES.get(market_type, (None, ""))[0] or ""
 
 
 def probability_for_rule(forecast_value: float, threshold: float, sigma: float, rule: str) -> float:
