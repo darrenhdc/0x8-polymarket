@@ -25,16 +25,17 @@ from .prediction_interface import MarketContext, PredictionSource
 
 
 DEFAULT_SIGMA = {
-    "temp_above": 1.5,   # calibrated from 65 HK dates: bias-corrected residual std 1.47°C
+    "temp_above": 1.20,   # HKO-calibrated T+0 residual std (791 pairs, 2024-2026)
     "precip": 2.0,
     "snow": 2.0,
 }
 
-# GFS cold bias per location_id (GFS forecast - VHHH station, negative = GFS runs cold).
+# GFS cold bias per location_id (GFS forecast - HKO actual, negative = GFS runs cold).
 # Correction is *added* to the GFS forecast before computing probabilities.
-# Calibrated in-sample from resolved HK markets Mar-May 2026.
+# Calibrated against HKO Observatory HQ (Polymarket settlement source),
+# 791+ pairs 2024-2026. See data/calibration.json for per-lead breakdown.
 GFS_BIAS_CORRECTION: dict[str, dict[str, float]] = {
-    "hong-kong_hong-kong": {"temperature_2m_max": +0.89, "temperature_2m_min": +0.89},
+    "hong-kong_hong-kong": {"temperature_2m_max": -1.324, "temperature_2m_min": 0.0},
 }
 
 
@@ -284,6 +285,8 @@ class WeatherBacktester:
         max_lead_time_hours: Optional[int] = 48,
         min_price: float = 0.03,
         prediction_source: Optional[PredictionSource] = None,
+        min_liquidity: float = 50.0,
+        dedup_same_day: bool = True,
     ) -> list[dict]:
         """Per-trade rolling calibration backtest using a pluggable PredictionSource.
 
@@ -325,7 +328,8 @@ class WeatherBacktester:
                 m.id, m.question, m.city, m.country, m.market_type,
                 m.threshold_value, m.threshold_unit, m.target_date,
                 m.resolved_outcome, m.latitude, m.longitude,
-                p.timestamp, p.price
+                p.timestamp, p.price,
+                m.volume, m.liquidity
             FROM markets m
             JOIN price_history p ON p.market_id = m.id
             WHERE substr(p.timestamp, 1, 10) BETWEEN ? AND ?
@@ -386,6 +390,13 @@ class WeatherBacktester:
             if min_price > 0 and (market_yes < min_price or market_yes > 1.0 - min_price):
                 continue
 
+            # Liquidity filter (缺陷6): skip markets with insufficient volume
+            if min_liquidity > 0:
+                vol = float(row["volume"] or 0)
+                liq = float(row["liquidity"] or 0)
+                if vol < min_liquidity and liq < min_liquidity * 50:
+                    continue
+
             signal = _compute_edge(
                 prediction, market_yes, ctx,
                 min_edge=min_edge,
@@ -399,7 +410,11 @@ class WeatherBacktester:
             observed = self._observed(location_id, row["target_date"], variable)
             actual_yes = self._actual_yes(row["resolved_outcome"], observed, threshold, rule)
             trade_price = market_yes if signal.direction == "BUY_YES" else 1.0 - market_yes
-            pnl = simulate_pnl(signal.direction, trade_price, amount, actual_yes)
+            # PnL with realistic costs: ~2% half-spread + 5% taker fee on wins
+            pnl = simulate_pnl(
+                signal.direction, trade_price, amount, actual_yes,
+                half_spread=0.02, taker_fee_rate=0.05,
+            )
 
             extra = prediction.extra or {}
             results.append({
@@ -416,6 +431,23 @@ class WeatherBacktester:
                 "calib_sigma":    extra.get("calib_sigma", 0.0),
                 "calib_n":        extra.get("calib_n", 0),
             })
+
+        # Defect 4 fix: discrete markets have multiple temperature buckets per
+        # day (24/25/26/27/28/...) but only ONE wins.  Treating each bucket as
+        # an independent trade inflates trade count and Sharpe.  When
+        # dedup_same_day is True, keep only the highest-|edge| bucket per
+        # (date, target_date) — i.e. one concentrated bet per day.
+        if dedup_same_day and results:
+            best_per_day: dict[tuple, dict] = {}
+            for r in results:
+                key = (r["date"], r["target_date"])
+                cur = best_per_day.get(key)
+                if cur is None or abs(r["edge"]) > abs(cur["edge"]):
+                    best_per_day[key] = r
+            results = list(best_per_day.values())
+            # Re-sort by date for stable output
+            results.sort(key=lambda r: (r["date"], r["target_date"]))
+
         return results
 
     def summary(self, trades: list[BacktestTrade]) -> dict:
@@ -548,9 +580,34 @@ def convert_threshold(value: float, unit: Optional[str], variable: str) -> float
     return float(value)
 
 
-def simulate_pnl(direction: str, price: float, amount: float, actual_yes: Optional[bool]) -> float:
+def simulate_pnl(
+    direction: str,
+    price: float,
+    amount: float,
+    actual_yes: Optional[bool],
+    half_spread: float = 0.01,
+    taker_fee_rate: float = 0.05,
+) -> float:
+    """Simulate trade PnL with realistic execution costs.
+
+    Args:
+        direction: "BUY_YES" | "BUY_NO"
+        price: mid price of the YES token (0-1)
+        amount: USD notional staked
+        actual_yes: resolved outcome; None = unresolved (PnL=0)
+        half_spread: half bid-ask spread (taker crosses the book).
+                     We pay (mid + half_spread) when buying.
+        taker_fee_rate: Polymarket weather markets charge ~5% taker fee on
+                        winning proceeds (rounded). 0 to disable.
+    """
     if actual_yes is None:
         return 0.0
-    tokens = amount / min(max(price, 0.001), 0.999)
+    # Taker buys at the ask side of the book
+    buy_price = min(max(price + half_spread, 0.001), 0.999)
+    tokens = amount / buy_price
     won = actual_yes if direction == "BUY_YES" else not actual_yes
-    return (tokens - amount) if won else -amount
+    if won:
+        gross = tokens - amount  # win: tokens pay $1 each, minus stake
+        fee = gross * taker_fee_rate
+        return gross - fee
+    return -amount

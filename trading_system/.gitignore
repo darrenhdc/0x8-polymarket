@@ -4,3 +4,4 @@ __pycache__/
 logs/
 data/keystore.json
 data/llm_cache/
+data/trade_log.json
