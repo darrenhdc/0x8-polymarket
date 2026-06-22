@@ -153,6 +153,63 @@ python3 -m research.factor_ic --city all --start 2026-01-01 --end 2026-05-31
 | `MAX_SANE_EDGE` | 0.60 | edge  sanity 上限 |
 | `STOP_LOSS_PERCENT` | 0.15 | 正常仓位止损 |
 | `LOW_PROB_STOP_LOSS` | 0.10 | 低概率仓位止损 |
+| `MIN_DIST_SIGMA_EQ` | 0.5 | 点概率交易最小 GFS-threshold 距离（σ） |
+| `MIN_EDGE_NEAR_THRESHOLD` | 0.25 | GFS 中心靠近 threshold (<1σ) 时的最低 edge |
+| `MIN_CALIB_PAIRS_RELIABLE` | 100 | 可靠校准最少样本数 |
+
+## 6.5 交易前检查清单（硬性约束，2026-06-22 加入）
+
+### 规则 A：点概率距离约束
+
+**点概率市场（rule=eq，「Will it be X°C?」）必须满足距离要求。**
+
+| GFS校正值距threshold | 最低 edge | 是否允许交易 |
+|----------------------|-----------|-------------|
+| < 0.5σ | — | ❌ **禁止**（噪声主导） |
+| 0.5σ – 1.0σ | ≥ 25% | ⚠️ 需人工确认 |
+| 1.0σ – 1.5σ | ≥ 15% | ✅ 正常 |
+| > 1.5σ | ≥ 8% | ✅ 最佳区间 |
+
+> **原因**：T003 教训——GFS 中心 30.84°C 距 threshold 31°C 仅 0.1σ，edge +11.6% 完全被 bias/sigma 误差淹没。
+>
+> 距离 = `abs(gfs_corrected − threshold) / sigma`
+
+### 规则 B：同日同城 neg-risk 市场联合分析
+
+**同一 neg-risk market group 内多笔仓位 = 必须做联合 payoff 矩阵。**
+
+1. 列出所有可能的实际温度（至少覆盖 GFS 中心 ±2σ 范围内每个整数 °C）
+2. 对每个温度计算每笔仓位的 PnL + 总 PnL
+3. 确认：**最坏情况概率 < 最好情况概率**（否则不是对冲，是集中押注）
+4. 确认：EV 最可能区间（概率 > 50% 的区间）净 PnL ≥ 0
+5. 将 payoff 矩阵写入 trade_log.json 的 `rationale` 字段
+
+> **原因**：T005+T006 教训——BUY_NO 30°C + BUY_YES 32°C 看似互补，实际是押注 32°C 的杠杆仓位。最坏情况（30°C, −$9.95）概率 24.7% > 最好情况（32°C, +$53.24）概率 23.7%。
+
+### 规则 C：校准质量分级
+
+| 等级 | 样本数 | 覆盖季节 | 允许 lead time | 最低 edge |
+|------|--------|---------|---------------|-----------|
+| 🟢 可靠 | ≥ 100 | 跨季节 ≥ 2 | 所有 | 标准阈值 |
+| 🟡 可交易 | 20–99 | 单季节 | T+0 优先 | ×1.5 |
+| 🔴 禁止 | < 20 | — | 不允许交易 | — |
+
+**当前校准状态：**
+- 🟢 HK T+0: 791 pairs (HKO, 跨年) — 可靠
+- 🟡 HK T+1: 73 pairs (spring-only) — edge 阈值 ×1.5 → ≥18% 才能交易
+- 🟡 HK T+2: 73 pairs (spring-only) — 同上，且 ≤48h lead 不推荐
+- 🟢 London T+0/T+1: 408 pairs (PM settlement, 跨季节) — 可靠
+
+> **原因**：T001/T002/T003 全用弱校准（73 pairs），log 标注 WARNING 但照下单。T002 赢了是运气，T003 输了是必然。
+
+### 规则 D：BUY_YES 低概率仓位止损
+
+BUY_YES 方向（买「会发生」），如果 Yes 价格 < 0.15（低概率事件）：
+- 止损设为 **−100%**（接受归零）→ 仓位必须 ≤ `LOW_PROB_STOP_LOSS` × 总资金
+- 禁止对同一 neg-risk group 同时开 ≥ 2 个 BUY_YES
+- 每笔低概率 BUY_YES 必须在 rationale 中标注「接受归零风险」
+
+> **原因**：T006 BUY_YES 32°C @ $0.09 有 +14.7% edge，但 23.7% 胜率意味着每 4-5 次才中一次。配合 T005 形成了 30°C 双杀风险。
 
 ## 7. 安全与合规
 
@@ -161,7 +218,28 @@ python3 -m research.factor_ic --city all --start 2026-01-01 --end 2026-05-31
 - **敏感话题过滤**：自动跳过涉及政治敏感关键词的市场
 - **日亏损上限**：真实交易每日亏损不超过 `$MAX_DAILY_LOSS`
 
-## 8. 常见操作速查
+## 7.5 交易日志（必须遵守）
+
+**每笔下注必须记录到 `data/trade_log.json`，下注前后都要维护。**
+
+- **下注前**：追加一条新 entry（`status: "open"`），填入所有 edge 计算参数（gfs_raw/bias/sigma/corrected/model_P/market_ask/edge/rationale）
+- **结算后**：填充 `pnl_usd` / `resolved_at` / `resolution`，status 改为 `"resolved"`
+- **如提前平仓**：写入 `exit` 对象（含平仓价、净 PnL），同时在 `liquidation_outcome` 字段记录结算结果（赢/输对照），注满 forward-test 参考
+- **每次下注只会新增一条记录，不删除、不覆盖已有数据**
+- 日志结构见 `data/trade_log.json` meta 注释
+- 这是硬性约束——用于 PnL 审计、策略归因、未来 analysis。不记录 = 承认交易不可审计。
+
+## 8. 沟通规范（必须遵守）
+
+- **回复语言：简体中文（简体中文）**。所有面向用户的回复（对话、状态报告、edge 表、风险提示）必须用简体中文。
+- **技术术语保留英文原文**：edge, backtest, Sharpe, PnL, lead time, order book, bid/ask, token_id, GFS, CLOB, FOK/GTC, bias, sigma 等。
+- **代码、文件路径、命令行、变量名**：保持原样（不翻译）。
+- **数字优先**：用户偏好直接结论——先给数字/yes-no/日期，再给方法论。
+- **诚实标注不确定性**：数据不可信（geofence、stale、小样本）时，明确说"置信度低"并附上置信区间或范围。
+- **绝不自动下单**：任何真实订单前必须等用户明确确认（"yes, place these" 或类似）。
+- **不啰嗦流程**：用户讨厌 process-talk，要 results。
+
+## 9. 常见操作速查
 
 | 操作 | 命令 |
 |------|------|
@@ -177,5 +255,5 @@ python3 -m research.factor_ic --city all --start 2026-01-01 --end 2026-05-31
 | 查看 SOTA | `python3 cli.py sota` |
 
 ---
-**最后更新**: 2026-06-02
-**系统版本**: Polymarket Weather Trading System v2.0 (GFS-only)
+**最后更新**: 2026-06-22
+**系统版本**: Polymarket Weather Trading System v2.1 (GFS-only + trade guards)

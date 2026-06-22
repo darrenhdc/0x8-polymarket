@@ -20,9 +20,11 @@ Calibration (rolling window):
 """
 from __future__ import annotations
 
+import json
 import math
 import time
 from datetime import date
+from pathlib import Path
 from typing import Optional
 
 import requests
@@ -37,11 +39,23 @@ from .prediction_interface import MarketContext, Prediction, PredictionSource
 
 OPEN_METEO_FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
 
-# Fallback calibration — HK temperature (GFS runs cold vs VHHH station)
-DEFAULT_BIAS_TEMP   = +0.89   # °C
-DEFAULT_SIGMA_TEMP  =  1.79   # °C
-DEFAULT_BIAS_PRECIP =  0.0    # mm
-DEFAULT_SIGMA_PRECIP = 5.0    # mm
+# Path to pre-computed calibration JSON (HKO × GFS, London × GFS).
+# These values are preferred over DB-computed calibration when they
+# have more pairs than the dynamically-computed DB estimates.
+_CALIBRATION_JSON_PATH = (
+    Path(__file__).parent.parent.parent / "data" / "calibration.json"
+)
+
+# Per-lead fallback calibration — used only when neither calibration.json
+# nor DB have sufficient data.
+BIAS_BY_LEAD_H = {0: -1.324, 24: -3.242, 48: -3.440, 72: -3.382}
+SIGMA_BY_LEAD_H = {0: 1.200, 24: 1.409, 48: 1.599, 72: 1.496}
+
+# Single-value fallbacks (T+0) for legacy code paths
+DEFAULT_BIAS_TEMP   = -1.324   # = bias at lead 0h
+DEFAULT_SIGMA_TEMP  =  1.200   # = sigma at lead 0h
+DEFAULT_BIAS_PRECIP =  0.0     # mm
+DEFAULT_SIGMA_PRECIP = 5.0     # mm
 
 MIN_CALIB_PAIRS = 5
 DEFAULT_CALIB_WINDOW = 20
@@ -91,6 +105,78 @@ def probability_for_rule(
 
 
 # ---------------------------------------------------------------------------
+# Pre-computed calibration JSON
+# ---------------------------------------------------------------------------
+
+_calib_json_cache: Optional[dict] = None
+
+def _load_calibration_json() -> dict:
+    """Load calibration.json, caching in memory.
+
+    Returns a dict keyed by city display name, with per-variable per-lead
+    bias/sigma/n values.  Example::
+
+        {"Hong Kong": {"temperature_2m_max": {
+            "bias_by_lead_hours": {"0": -1.324, ...},
+            "sigma_by_lead_hours": {"0": 1.200, ...},
+            "pairs_by_lead_hours": {"0": 791, ...},
+        }}}
+    """
+    global _calib_json_cache
+    if _calib_json_cache is not None:
+        return _calib_json_cache
+    try:
+        if _CALIBRATION_JSON_PATH.exists():
+            _calib_json_cache = json.loads(_CALIBRATION_JSON_PATH.read_text())
+        else:
+            _calib_json_cache = {}
+    except Exception:
+        _calib_json_cache = {}
+    return _calib_json_cache
+
+
+def _lookup_json_calibration(
+    city_display: str,
+    variable: str,
+    lead_time_hours: Optional[int],
+) -> Optional[tuple[float, float, int]]:
+    """Look up pre-computed calibration for a city/variable/lead.
+
+    Returns (bias, sigma, n) or None if not found.
+    lead_time_hours is rounded to the nearest bucket: 0, 24, 48, or 72.
+    """
+    calib = _load_calibration_json()
+    city_data = calib.get(city_display)
+    if city_data is None:
+        return None
+    var_data = city_data.get(variable)
+    if var_data is None:
+        return None
+
+    biases = var_data.get("bias_by_lead_hours", {})
+    sigmas = var_data.get("sigma_by_lead_hours", {})
+    pairs  = var_data.get("pairs_by_lead_hours", {})
+
+    # Round lead to nearest known bucket
+    lead_key = "0"
+    if lead_time_hours is not None:
+        for bucket in ["72", "48", "24", "0"]:
+            if lead_time_hours >= int(bucket):
+                lead_key = bucket
+                break
+
+    if lead_key not in biases:
+        return None
+    try:
+        bias = float(biases[lead_key])
+        sigma = float(sigmas[lead_key])
+        n = int(pairs[lead_key])
+        return bias, sigma, n
+    except (KeyError, ValueError, TypeError):
+        return None
+
+
+# ---------------------------------------------------------------------------
 # Shared calibration helper
 # ---------------------------------------------------------------------------
 
@@ -104,18 +190,35 @@ def _compute_calibration(
     n_days: int,
     default_bias: float,
     default_sigma: float,
+    lead_time_hours: Optional[int] = None,
 ) -> tuple[float, float, int]:
     """Rolling calibration from the last n_days resolved pairs.
 
     Returns (bias, sigma, n_pairs).  Falls back to (default_bias, default_sigma, 0).
+
+    Calibration bug fixes:
+      - Filters to exact-point markets only (resolved 'Yes' on a "be X°C" market
+        implies actual temp == threshold).  Cumulative ("or below"/"or higher")
+        and lowest-temp markets are excluded — they don't pin the exact value.
+      - If lead_time_hours is given, pairs the resolved market with the GFS
+        forecast issued at that lead time (so each lead-time bucket gets its own
+        bias/sigma).  Otherwise uses the latest forecast <= anchor_date.
     """
+    # Calibration fix: exclude cumulative / lowest-temp markets whose 'Yes'
+    # outcome doesn't pin an exact temperature value.
     resolved = market_conn.execute(
         """
-        SELECT target_date, threshold_value
+        SELECT target_date, threshold_value, slug, question
         FROM markets
         WHERE resolved_outcome = 'Yes'
           AND market_type = ?
           AND target_date < ?
+          AND question NOT LIKE '%or below%'
+          AND question NOT LIKE '%or higher%'
+          AND question NOT LIKE '%or less%'
+          AND question NOT LIKE '%or more%'
+          AND question NOT LIKE '%lowest%'
+          AND question NOT LIKE '%minimum%'
         ORDER BY target_date DESC
         LIMIT ?
         """,
@@ -126,15 +229,29 @@ def _compute_calibration(
         return default_bias, default_sigma, 0
 
     errors: list[float] = []
-    for d, vhhh in resolved:
-        row = gfs_conn.execute(
-            """
-            SELECT value FROM gfs_forecasts
-            WHERE location_id = ? AND target_date = ? AND variable = ?
-            ORDER BY forecast_issued DESC LIMIT 1
-            """,
-            (location_id, d, variable),
-        ).fetchone()
+    for d, vhhh, slug, question in resolved:
+        if lead_time_hours is not None:
+            # Use forecast issued at exactly this lead time before target_date
+            row = gfs_conn.execute(
+                """
+                SELECT value FROM gfs_forecasts
+                WHERE location_id = ? AND target_date = ? AND variable = ?
+                  AND lead_time_hours = ?
+                  AND forecast_issued <= ?
+                ORDER BY forecast_issued DESC LIMIT 1
+                """,
+                (location_id, d, variable, lead_time_hours, anchor_date),
+            ).fetchone()
+        else:
+            row = gfs_conn.execute(
+                """
+                SELECT value FROM gfs_forecasts
+                WHERE location_id = ? AND target_date = ? AND variable = ?
+                  AND forecast_issued <= ?
+                ORDER BY forecast_issued DESC LIMIT 1
+                """,
+                (location_id, d, variable, anchor_date),
+            ).fetchone()
         if row is not None:
             errors.append(float(row[0]) - float(vhhh))
 
@@ -219,14 +336,26 @@ class GFSPredictionSource(PredictionSource):
         if gfs_raw is None:
             return None
 
-        # Calibration
+        # Determine lead time bucket for per-lead calibration
+        lead_h = None
+        if market.target_date and anchor_date:
+            try:
+                td = date.fromisoformat(market.target_date[:10])
+                pd = date.fromisoformat(anchor_date[:10])
+                lead_h = max(0, (td - pd).days * 24)
+            except ValueError:
+                lead_h = None
+
+        # Calibration (per-lead-time bucket when lead_h known)
         bias, sigma, calib_n = self._calibrate(
             location_id=market.location_id,
             variable=variable,
             anchor_date=anchor_date,
+            lead_time_hours=lead_h,
         )
 
-        gfs_corrected = gfs_raw + bias
+        # bias = mean(GFS - actual), so correction = GFS - bias = GFS - (GFS - actual) ≈ actual
+        gfs_corrected = gfs_raw - bias
         prob = probability_for_rule(gfs_corrected, market.threshold_value, sigma, market.rule)
 
         return Prediction(
@@ -242,7 +371,7 @@ class GFSPredictionSource(PredictionSource):
             ),
             key_factors=[
                 f"GFS corrected: {gfs_corrected:.1f}°C",
-                f"Calibration n={calib_n} ({'fallback' if calib_n == 0 else 'from DB'})",
+                f"Calibration n={calib_n} ({'pre-computed JSON' if calib_n >= 100 else 'from DB' if calib_n > 0 else 'fallback'})",
             ],
             extra={
                 "gfs_raw": round(gfs_raw, 2),
@@ -270,7 +399,7 @@ class GFSPredictionSource(PredictionSource):
         if self.mode == "live":
             return self._live_forecast(target_date, variable, lat, lon, location_id)
         else:
-            return self._historical_forecast(target_date, variable, location_id)
+            return self._historical_forecast(target_date, variable, location_id, price_date)
 
     def _live_forecast(
         self,
@@ -327,15 +456,29 @@ class GFSPredictionSource(PredictionSource):
         target_date: str,
         variable: str,
         location_id: str,
+        price_date: Optional[str] = None,
     ) -> Optional[float]:
-        row = self.gfs_conn.execute(
-            """
-            SELECT value FROM gfs_forecasts
-            WHERE location_id = ? AND target_date = ? AND variable = ?
-            ORDER BY forecast_issued DESC LIMIT 1
-            """,
-            (location_id, target_date, variable),
-        ).fetchone()
+        # Look-ahead fix: only use forecasts issued on or before price_date.
+        # If price_date is None (live mode misuse), fall back to latest for safety.
+        if price_date:
+            row = self.gfs_conn.execute(
+                """
+                SELECT value FROM gfs_forecasts
+                WHERE location_id = ? AND target_date = ? AND variable = ?
+                  AND forecast_issued <= ?
+                ORDER BY forecast_issued DESC LIMIT 1
+                """,
+                (location_id, target_date, variable, price_date),
+            ).fetchone()
+        else:
+            row = self.gfs_conn.execute(
+                """
+                SELECT value FROM gfs_forecasts
+                WHERE location_id = ? AND target_date = ? AND variable = ?
+                ORDER BY forecast_issued DESC LIMIT 1
+                """,
+                (location_id, target_date, variable),
+            ).fetchone()
         return float(row[0]) if row else None
 
     # ------------------------------------------------------------------
@@ -347,10 +490,12 @@ class GFSPredictionSource(PredictionSource):
         location_id: str,
         variable: str,
         anchor_date: str,
+        lead_time_hours: Optional[int] = None,
     ) -> tuple[float, float, int]:
-        cache_key = (location_id, variable, anchor_date)
+        cache_key = (location_id, variable, anchor_date, lead_time_hours)
         if cache_key not in self._calib_cache:
-            bias, sigma, n = _compute_calibration(
+            # 1. Compute DB-based calibration (rolling window from resolved markets)
+            db_bias, db_sigma, db_n = _compute_calibration(
                 gfs_conn=self.gfs_conn,
                 market_conn=self.market_conn,
                 location_id=location_id,
@@ -360,8 +505,32 @@ class GFSPredictionSource(PredictionSource):
                 n_days=self.calib_window,
                 default_bias=DEFAULT_BIAS_TEMP,
                 default_sigma=DEFAULT_SIGMA_TEMP,
+                lead_time_hours=lead_time_hours,
             )
-            self._calib_cache[cache_key] = (bias, sigma, n)
+
+            # 2. Check calibration.json for a higher-quality pre-computed calibration
+            #    The JSON values come from long-term station data (HKO, Wunderground)
+            #    and are preferred when they have more pairs than DB.
+            #    Map location_id → city display name.
+            city_map = {
+                "hong_kong_hong_kong": "Hong Kong",
+                "london_united_kingdom": "London",
+            }
+            city_display = city_map.get(location_id)
+            if city_display is not None:
+                json_calib = _lookup_json_calibration(
+                    city_display, variable, lead_time_hours
+                )
+                if json_calib is not None:
+                    json_bias, json_sigma, json_n = json_calib
+                    # Prefer JSON if it has more pairs than DB
+                    if json_n > db_n:
+                        bias, sigma, n = json_bias, json_sigma, json_n
+                        self._calib_cache[cache_key] = (bias, sigma, n)
+                        return self._calib_cache[cache_key]
+
+            # 3. Fall back to DB computation
+            self._calib_cache[cache_key] = (db_bias, db_sigma, db_n)
         return self._calib_cache[cache_key]
 
 
@@ -468,7 +637,7 @@ class GFSPrecipSource(PredictionSource):
     ) -> Optional[float]:
         if self.mode == "live":
             return self._live_forecast(target_date, variable, lat, lon, location_id)
-        return self._historical_forecast(target_date, variable, location_id)
+        return self._historical_forecast(target_date, variable, location_id, price_date)
 
     def _live_forecast(
         self, target_date, variable, lat, lon, location_id
@@ -504,16 +673,28 @@ class GFSPrecipSource(PredictionSource):
         return self._live_cache.get(cache_key)
 
     def _historical_forecast(
-        self, target_date, variable, location_id
+        self, target_date, variable, location_id, price_date=None
     ) -> Optional[float]:
-        row = self.gfs_conn.execute(
-            """
-            SELECT value FROM gfs_forecasts
-            WHERE location_id = ? AND target_date = ? AND variable = ?
-            ORDER BY forecast_issued DESC LIMIT 1
-            """,
-            (location_id, target_date, variable),
-        ).fetchone()
+        # Look-ahead fix: only use forecasts issued on or before price_date.
+        if price_date:
+            row = self.gfs_conn.execute(
+                """
+                SELECT value FROM gfs_forecasts
+                WHERE location_id = ? AND target_date = ? AND variable = ?
+                  AND forecast_issued <= ?
+                ORDER BY forecast_issued DESC LIMIT 1
+                """,
+                (location_id, target_date, variable, price_date),
+            ).fetchone()
+        else:
+            row = self.gfs_conn.execute(
+                """
+                SELECT value FROM gfs_forecasts
+                WHERE location_id = ? AND target_date = ? AND variable = ?
+                ORDER BY forecast_issued DESC LIMIT 1
+                """,
+                (location_id, target_date, variable),
+            ).fetchone()
         return float(row[0]) if row else None
 
     def _calibrate(
@@ -521,7 +702,7 @@ class GFSPrecipSource(PredictionSource):
     ) -> tuple[float, float, int]:
         cache_key = (location_id, variable, anchor_date)
         if cache_key not in self._calib_cache:
-            bias, sigma, n = _compute_calibration(
+            db_bias, db_sigma, db_n = _compute_calibration(
                 gfs_conn=self.gfs_conn,
                 market_conn=self.market_conn,
                 location_id=location_id,
@@ -532,5 +713,22 @@ class GFSPrecipSource(PredictionSource):
                 default_bias=DEFAULT_BIAS_PRECIP,
                 default_sigma=DEFAULT_SIGMA_PRECIP,
             )
-            self._calib_cache[cache_key] = (bias, sigma, n)
+
+            # Check calibration.json for better pre-computed values
+            city_map = {
+                "hong_kong_hong_kong": "Hong Kong",
+                "london_united_kingdom": "London",
+            }
+            city_display = city_map.get(location_id)
+            if city_display is not None:
+                json_calib = _lookup_json_calibration(
+                    city_display, variable, None
+                )
+                if json_calib is not None:
+                    json_bias, json_sigma, json_n = json_calib
+                    if json_n > db_n:
+                        self._calib_cache[cache_key] = (json_bias, json_sigma, json_n)
+                        return self._calib_cache[cache_key]
+
+            self._calib_cache[cache_key] = (db_bias, db_sigma, db_n)
         return self._calib_cache[cache_key]
