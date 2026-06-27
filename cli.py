@@ -8,6 +8,7 @@ Subcommands
   backtest  — run historical backtest (legacy run() method, guaranteed parity)
   coverage  — data coverage report (markets, prices, GFS, ERA5)
   calibrate — compute GFS bias/sigma for resolved dates
+  monitor   — convergence take-profit check on open positions
 
 Examples
 --------
@@ -20,6 +21,8 @@ Examples
   python3 cli.py coverage
   python3 cli.py calibrate
   python3 cli.py calibrate --city hong-kong
+  python3 cli.py monitor             # check open position convergence
+  python3 cli.py monitor --auto      # auto-exit converged positions
 """
 from __future__ import annotations
 
@@ -214,16 +217,16 @@ def cmd_calibrate(args) -> int:
             city_results: dict[str, dict] = {}
             for variable, _ in variables:
                 try:
-                    bias, sigma = bt.calibrate(
+                    bias, sigma, n_pairs = bt.calibrate(
                         location_id=location_id,
                         variable=variable,
                         anchor_date=end,
                         n_days=args.n_days,
                     )
-                    city_results[variable] = {"bias": bias, "sigma": sigma}
+                    city_results[variable] = {"bias": bias, "sigma": sigma, "n": n_pairs}
                     print(
                         f"[calibrate] {city_display}/{variable}: "
-                        f"bias={bias:+.3f}°C  sigma={sigma:.3f}°C"
+                        f"bias={bias:+.3f}°C  sigma={sigma:.3f}°C  n={n_pairs}"
                     )
                 except Exception as exc:
                     print(f"[calibrate] {city_display}/{variable}: ERROR — {exc}")
@@ -508,6 +511,12 @@ def cmd_paper_close(args) -> int:
     return 0
 
 
+def cmd_monitor(args) -> int:
+    """Run convergence take-profit monitor on open positions."""
+    from src.execution.convergence_monitor import run as monitor_run
+    return monitor_run(auto_exit=args.auto)
+
+
 # ---------------------------------------------------------------------------
 # Argument parser
 # ---------------------------------------------------------------------------
@@ -615,6 +624,11 @@ def build_parser() -> argparse.ArgumentParser:
     # ---- paper-close -------------------------------------------------------
     sub.add_parser("paper-close", help="Close resolved paper positions")
 
+    # ---- monitor -----------------------------------------------------------
+    p_mon = sub.add_parser("monitor", help="Convergence take-profit monitor")
+    p_mon.add_argument("--auto", action="store_true",
+                       help="Automatically SELL converged positions")
+
     return parser
 
 
@@ -636,6 +650,7 @@ COMMAND_HANDLERS = {
     "trade":        cmd_trade,
     "paper-status": cmd_paper_status,
     "paper-close":  cmd_paper_close,
+    "monitor":      cmd_monitor,
 }
 
 

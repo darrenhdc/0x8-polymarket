@@ -254,6 +254,9 @@ BUY_YES 方向（买「会发生」），如果 Yes 价格 < 0.15（低概率事
 | 性能监控 | `python3 cli.py performance` |
 | 查看 SOTA | `python3 cli.py sota` |
 
+| 收敛监控 | `python3 cli.py monitor` |
+| 收敛监控(自动) | `python3 cli.py monitor --auto` |
+
 ---
-**最后更新**: 2026-06-22
-**系统版本**: Polymarket Weather Trading System v2.1 (GFS-only + trade guards)
+**最后更新**: 2026-06-27
+**系统版本**: Polymarket Weather Trading System v2.2 (convergence take-profit)

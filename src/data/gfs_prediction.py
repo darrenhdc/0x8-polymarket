@@ -140,10 +140,12 @@ def _lookup_json_calibration(
     variable: str,
     lead_time_hours: Optional[int],
 ) -> Optional[tuple[float, float, int]]:
-    """Look up pre-computed calibration for a city/variable/lead.
+    """Look up pre-computed calibration for a city/variable.
 
     Returns (bias, sigma, n) or None if not found.
-    lead_time_hours is rounded to the nearest bucket: 0, 24, 48, or 72.
+    Supports both formats:
+      - Simple:   {"bias": x, "sigma": y, "n": n}
+      - Per-lead: {"bias_by_lead_hours": {"0": x}, "sigma_by_lead_hours": ..., "pairs_by_lead_hours": ...}
     """
     calib = _load_calibration_json()
     city_data = calib.get(city_display)
@@ -153,11 +155,18 @@ def _lookup_json_calibration(
     if var_data is None:
         return None
 
+    # Simple format: {"bias": x, "sigma": y, "n": n}
+    if "bias" in var_data and "sigma" in var_data:
+        try:
+            return float(var_data["bias"]), float(var_data["sigma"]), int(var_data.get("n", 0))
+        except (KeyError, ValueError, TypeError):
+            return None
+
+    # Per-lead format
     biases = var_data.get("bias_by_lead_hours", {})
     sigmas = var_data.get("sigma_by_lead_hours", {})
     pairs  = var_data.get("pairs_by_lead_hours", {})
 
-    # Round lead to nearest known bucket
     lead_key = "0"
     if lead_time_hours is not None:
         for bucket in ["72", "48", "24", "0"]:
@@ -192,73 +201,39 @@ def _compute_calibration(
     default_sigma: float,
     lead_time_hours: Optional[int] = None,
 ) -> tuple[float, float, int]:
-    """Rolling calibration from the last n_days resolved pairs.
+    """Compute (bias, sigma, n) from GFS forecast vs observed weather.
 
-    Returns (bias, sigma, n_pairs).  Falls back to (default_bias, default_sigma, 0).
-
-    Calibration bug fixes:
-      - Filters to exact-point markets only (resolved 'Yes' on a "be X°C" market
-        implies actual temp == threshold).  Cumulative ("or below"/"or higher")
-        and lowest-temp markets are excluded — they don't pin the exact value.
-      - If lead_time_hours is given, pairs the resolved market with the GFS
-        forecast issued at that lead time (so each lead-time bucket gets its own
-        bias/sigma).  Otherwise uses the latest forecast <= anchor_date.
+    Uses the observed_weather table for exact station/ERA5 data.
+    Filters by location_id, variable, and lead_time_hours.
+    bias = mean(GFS - observed); corrected = GFS_raw - bias.
     """
-    # Calibration fix: exclude cumulative / lowest-temp markets whose 'Yes'
-    # outcome doesn't pin an exact temperature value.
-    resolved = market_conn.execute(
+    lt = lead_time_hours if lead_time_hours is not None else 0
+
+    pairs = gfs_conn.execute(
         """
-        SELECT target_date, threshold_value, slug, question
-        FROM markets
-        WHERE resolved_outcome = 'Yes'
-          AND market_type = ?
-          AND target_date < ?
-          AND question NOT LIKE '%or below%'
-          AND question NOT LIKE '%or higher%'
-          AND question NOT LIKE '%or less%'
-          AND question NOT LIKE '%or more%'
-          AND question NOT LIKE '%lowest%'
-          AND question NOT LIKE '%minimum%'
-        ORDER BY target_date DESC
+        SELECT g.value AS gfs_value, o.value AS obs_value
+        FROM gfs_forecasts g
+        JOIN observed_weather o
+          ON  g.location_id = o.location_id
+          AND g.target_date = o.target_date
+          AND g.variable    = o.variable
+        WHERE g.location_id = ?
+          AND g.variable    = ?
+          AND g.target_date < ?
+          AND g.lead_time_hours = ?
+          AND g.value IS NOT NULL
+          AND o.value IS NOT NULL
+        ORDER BY g.target_date DESC
         LIMIT ?
         """,
-        (market_type, anchor_date, n_days),
+        (location_id, variable, anchor_date, lt, n_days),
     ).fetchall()
 
-    if len(resolved) < MIN_CALIB_PAIRS:
+    if len(pairs) < MIN_CALIB_PAIRS:
         return default_bias, default_sigma, 0
 
-    errors: list[float] = []
-    for d, vhhh, slug, question in resolved:
-        if lead_time_hours is not None:
-            # Use forecast issued at exactly this lead time before target_date
-            row = gfs_conn.execute(
-                """
-                SELECT value FROM gfs_forecasts
-                WHERE location_id = ? AND target_date = ? AND variable = ?
-                  AND lead_time_hours = ?
-                  AND forecast_issued <= ?
-                ORDER BY forecast_issued DESC LIMIT 1
-                """,
-                (location_id, d, variable, lead_time_hours, anchor_date),
-            ).fetchone()
-        else:
-            row = gfs_conn.execute(
-                """
-                SELECT value FROM gfs_forecasts
-                WHERE location_id = ? AND target_date = ? AND variable = ?
-                  AND forecast_issued <= ?
-                ORDER BY forecast_issued DESC LIMIT 1
-                """,
-                (location_id, d, variable, anchor_date),
-            ).fetchone()
-        if row is not None:
-            errors.append(float(row[0]) - float(vhhh))
-
+    errors: list[float] = [float(p[0]) - float(p[1]) for p in pairs]
     n = len(errors)
-    if n < MIN_CALIB_PAIRS:
-        return default_bias, default_sigma, 0
-
     bias = sum(errors) / n
     residuals = [e - bias for e in errors]
     sigma = max(math.sqrt(sum(r * r for r in residuals) / n), 0.3)

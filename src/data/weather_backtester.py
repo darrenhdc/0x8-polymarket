@@ -213,11 +213,20 @@ class WeatherBacktester:
         variable: str,
         anchor_date: str,
         n_days: int = 20,
-    ) -> tuple[float, float]:
-        """Compute (bias, sigma) from the N resolved dates immediately before anchor_date.
+        lead_time_hours: int = 0,
+    ) -> tuple[float, float, int]:
+        """Compute (bias, sigma, n) from GFS forecast vs observed weather.
+
+        Uses the observed_weather table (exact station/ERA5 data) for the
+        given location_id and variable, comparing against the GFS forecast
+        at the specified lead_time_hours (default T+0).
+
+        bias = mean(GFS - observed)
+        sigma = std(GFS - observed)
+        Corrected value = GFS_raw - bias  (see gfs_prediction.py line 358)
 
         Returns (GFS_BIAS_CORRECTION[location_id][variable], DEFAULT_SIGMA[market_type])
-        as fallback when there are fewer than 5 resolved pairs.
+        as fallback when there are fewer than 5 pairs.
         """
         MIN_PAIRS = 5
         # Determine market_type from variable so we can pick the right fallback sigma
@@ -233,46 +242,38 @@ class WeatherBacktester:
         fb_bias  = GFS_BIAS_CORRECTION.get(location_id, {}).get(variable, 0.0)
         fb_sigma = DEFAULT_SIGMA.get(market_type, 1.0)
 
-        # Resolved markets before anchor_date (YES = market resolved Yes → threshold IS the actual temp)
-        resolved_rows = self.market_conn.execute(
+        # Join GFS forecasts with observed weather for this location/variable.
+        # Filter to the requested lead_time_hours (default 0 = T+0).
+        pairs = self.gfs_conn.execute(
             """
-            SELECT target_date, threshold_value
-            FROM markets
-            WHERE city IS NOT NULL
-              AND resolved_outcome = 'Yes'
-              AND market_type = ?
-              AND target_date < ?
-            ORDER BY target_date DESC
+            SELECT g.value AS gfs_value, o.value AS obs_value
+            FROM gfs_forecasts g
+            JOIN observed_weather o
+              ON  g.location_id = o.location_id
+              AND g.target_date = o.target_date
+              AND g.variable    = o.variable
+            WHERE g.location_id = ?
+              AND g.variable    = ?
+              AND g.target_date < ?
+              AND g.lead_time_hours = ?
+              AND g.value IS NOT NULL
+              AND o.value IS NOT NULL
+            ORDER BY g.target_date DESC
             LIMIT ?
             """,
-            (market_type, anchor_date, n_days),
+            (location_id, variable, anchor_date, lead_time_hours, n_days),
         ).fetchall()
 
-        if len(resolved_rows) < MIN_PAIRS:
-            return fb_bias, fb_sigma
+        if len(pairs) < MIN_PAIRS:
+            return fb_bias, fb_sigma, 0
 
-        errors: list[float] = []
-        for d, vhhh in resolved_rows:
-            vhhh_f = float(vhhh)
-            gfs_row = self.gfs_conn.execute(
-                """
-                SELECT value FROM gfs_forecasts
-                WHERE location_id = ? AND target_date = ? AND variable = ?
-                ORDER BY forecast_issued DESC LIMIT 1
-                """,
-                (location_id, d, variable),
-            ).fetchone()
-            if gfs_row is not None:
-                errors.append(float(gfs_row[0]) - vhhh_f)
-
-        if len(errors) < MIN_PAIRS:
-            return fb_bias, fb_sigma
+        errors: list[float] = [float(p[0]) - float(p[1]) for p in pairs]
 
         n = len(errors)
         bias = sum(errors) / n
         residuals = [e - bias for e in errors]
         sigma = max(math.sqrt(sum(r * r for r in residuals) / n), 0.3)
-        return bias, sigma
+        return bias, sigma, n
 
     def run_standard(
         self,

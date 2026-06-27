@@ -104,6 +104,8 @@ ENABLE_GENERIC_TRADING = os.getenv("ENABLE_GENERIC_TRADING", "false").lower() ==
 MAX_POSITIONS = 3           # Maximum number of open positions
 STOP_LOSS_PERCENT = 0.15  # 15% stop loss
 TAKE_PROFIT_PERCENT = 0.30  # 30% take profit
+CONVERGENCE_TAKE_PROFIT_RATIO = 0.50  # Close when market price captures 50% of edge gap
+ABSOLUTE_TP_ROI = 0.08  # Absolute ROI cap — close immediately when ROI hits 8% (whichever comes first: convergence or ROI)
 
 # Dynamic stop loss for very low probability positions (<15%)
 LOW_PROB_STOP_LOSS = 0.10  # 10% stop loss for positions with entry < 0.15
