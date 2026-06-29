@@ -1,0 +1,12 @@
+#!/bin/bash
+# Dashboard — one-command position viewer
+# Usage: ./dashboard          (live refresh every 60s)
+#        ./dashboard --once   (single snapshot)
+
+cd "$(dirname "$0")"
+
+if [ "$1" = "--once" ]; then
+    python3 -m src.execution.dashboard --once
+else
+    python3 -m src.execution.dashboard
+fi

@@ -38,6 +38,19 @@ KNOWN_LOCATIONS = {
     "las vegas": ("Las Vegas", "United States", 36.1716, -115.1391),
     "dallas": ("Dallas", "United States", 32.7767, -96.7970),
     "san francisco": ("San Francisco", "United States", 37.7749, -122.4194),
+    # New cities — Polymarket active markets
+    "madrid": ("Madrid", "Spain", 40.4168, -3.7038),
+    "munich": ("Munich", "Germany", 48.1351, 11.5820),
+    "amsterdam": ("Amsterdam", "Netherlands", 52.3676, 4.9041),
+    "helsinki": ("Helsinki", "Finland", 60.1699, 24.9384),
+    "istanbul": ("Istanbul", "Turkey", 41.0082, 28.9784),
+    "guangzhou": ("Guangzhou", "China", 23.1291, 113.2644),
+    "shenzhen": ("Shenzhen", "China", 22.5431, 114.0579),
+    "taipei": ("Taipei", "Taiwan", 25.0330, 121.5654),
+    "chongqing": ("Chongqing", "China", 29.4316, 106.9123),
+    "wuhan": ("Wuhan", "China", 30.5928, 114.3055),
+    "chengdu": ("Chengdu", "China", 30.5728, 104.0668),
+    "busan": ("Busan", "South Korea", 35.1796, 129.0756),
 }
 
 
